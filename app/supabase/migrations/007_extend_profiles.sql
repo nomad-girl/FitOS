@@ -1,0 +1,15 @@
+-- Extend existing profiles table
+ALTER TABLE profiles
+  ADD COLUMN IF NOT EXISTS calorie_target INTEGER,
+  ADD COLUMN IF NOT EXISTS protein_target INTEGER,
+  ADD COLUMN IF NOT EXISTS carbs_target INTEGER,
+  ADD COLUMN IF NOT EXISTS fat_target INTEGER,
+  ADD COLUMN IF NOT EXISTS step_goal INTEGER DEFAULT 10000,
+  ADD COLUMN IF NOT EXISTS sleep_goal NUMERIC(3,1) DEFAULT 7.5,
+  ADD COLUMN IF NOT EXISTS checkin_day TEXT DEFAULT 'monday',
+  ADD COLUMN IF NOT EXISTS training_days_per_week INTEGER DEFAULT 3,
+  ADD COLUMN IF NOT EXISTS training_since TEXT,
+  ADD COLUMN IF NOT EXISTS hevy_api_key_encrypted TEXT,
+  ADD COLUMN IF NOT EXISTS hevy_last_sync_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS hevy_sync_status TEXT DEFAULT 'disconnected',
+  ADD COLUMN IF NOT EXISTS coach_context TEXT;

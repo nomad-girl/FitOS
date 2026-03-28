@@ -1,0 +1,17 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# env files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node (root level)
+node_modules/

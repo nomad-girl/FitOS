@@ -52,9 +52,10 @@ interface PhaseWizardProps {
   onClose: () => void
   mode?: 'create' | 'edit'
   existingPhase?: Phase | null
+  macrocycleId?: string | null
 }
 
-export function PhaseWizard({ open, onClose, mode = 'create', existingPhase }: PhaseWizardProps) {
+export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, macrocycleId }: PhaseWizardProps) {
   const isEdit = mode === 'edit' && existingPhase
   const [step, setStep] = useState(1)
   const [name, setName] = useState(isEdit ? existingPhase.name : '')
@@ -65,11 +66,13 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase }: P
   const [split, setSplit] = useState('Full Body')
   const [focusMuscles, setFocusMuscles] = useState<string[]>(isEdit ? (existingPhase.focus_muscles ?? []) : [])
   const [volume, setVolume] = useState(defaultVolume)
-  const [macroMode, setMacroMode] = useState<'grams' | 'pct'>('grams')
   const [cal, setCal] = useState(isEdit && existingPhase.calorie_target ? String(existingPhase.calorie_target) : '')
   const [prot, setProt] = useState(isEdit && existingPhase.protein_target ? String(existingPhase.protein_target) : '')
   const [carbs, setCarbs] = useState(isEdit && existingPhase.carbs_target ? String(existingPhase.carbs_target) : '')
   const [fat, setFat] = useState(isEdit && existingPhase.fat_target ? String(existingPhase.fat_target) : '')
+  const [protPct, setProtPct] = useState(30)
+  const [carbsPct, setCarbsPct] = useState(40)
+  const [fatPct, setFatPct] = useState(30)
   const [steps, setSteps] = useState(isEdit && existingPhase.step_goal ? String(existingPhase.step_goal) : '')
   const [sleep, setSleep] = useState(isEdit && existingPhase.sleep_goal ? String(existingPhase.sleep_goal) : '')
   const [exitStates, setExitStates] = useState<Record<string, boolean>>(
@@ -94,6 +97,45 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase }: P
     setExitStates((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
+  // Auto-calculate macros from calories using current percentages
+  function handleCalChange(value: string) {
+    setCal(value)
+    const kcal = parseInt(value)
+    if (!kcal) return
+    setProt(String(Math.round((kcal * protPct / 100) / 4)))
+    setCarbs(String(Math.round((kcal * carbsPct / 100) / 4)))
+    setFat(String(Math.round((kcal * fatPct / 100) / 9)))
+  }
+
+  // When grams change, recalculate percentages
+  function handleGramChange(macro: 'prot' | 'carbs' | 'fat', value: string) {
+    const setter = macro === 'prot' ? setProt : macro === 'carbs' ? setCarbs : setFat
+    setter(value)
+    const kcal = parseInt(cal)
+    if (!kcal) return
+    const g = parseInt(value) || 0
+    const calFromMacro = macro === 'fat' ? g * 9 : g * 4
+    const pct = Math.round((calFromMacro / kcal) * 100)
+    if (macro === 'prot') setProtPct(pct)
+    else if (macro === 'carbs') setCarbsPct(pct)
+    else setFatPct(pct)
+  }
+
+  // When percentage changes, recalculate grams
+  function handlePctChange(macro: 'prot' | 'carbs' | 'fat', value: number) {
+    const kcal = parseInt(cal)
+    if (macro === 'prot') {
+      setProtPct(value)
+      if (kcal) setProt(String(Math.round((kcal * value / 100) / 4)))
+    } else if (macro === 'carbs') {
+      setCarbsPct(value)
+      if (kcal) setCarbs(String(Math.round((kcal * value / 100) / 4)))
+    } else {
+      setFatPct(value)
+      if (kcal) setFat(String(Math.round((kcal * value / 100) / 9)))
+    }
+  }
+
   async function handleSave() {
     setSaving(true)
     try {
@@ -103,6 +145,7 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase }: P
 
       const phaseData = {
         user_id: userId,
+        macrocycle_id: macrocycleId ?? existingPhase?.macrocycle_id ?? null,
         name: name || 'Nueva Fase',
         goal: goalMap[goal] ?? 'build',
         objective: objective || null,
@@ -178,20 +221,20 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase }: P
   return (
     <div
       className="fixed inset-0 bg-black/40 z-[500] flex justify-center items-center"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-card rounded-[var(--radius)] w-[580px] max-w-[95vw] max-h-[85vh] p-[24px_28px] shadow-[var(--shadow-lg)] fade-scale flex flex-col">
+      <div className="bg-card rounded-[var(--radius)] w-[580px] max-w-[95vw] max-h-[85vh] p-[24px_28px] shadow-[var(--shadow-lg)] fade-scale flex flex-col" onMouseDown={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex justify-between items-center mb-1.5 shrink-0">
           <h2 className="text-[1.1rem] font-extrabold">{mode === 'edit' ? 'Editar Fase' : 'Nueva Fase'}</h2>
           <button onClick={onClose} className="text-[1.3rem] text-gray-400 p-1 cursor-pointer bg-transparent border-none hover:text-gray-600">&times;</button>
         </div>
 
-        {/* Step Indicators */}
+        {/* Step Indicators — clickeable */}
         <div className="flex items-center gap-0 mb-7">
           {stepLabels.map((label, i) => (
             <div key={label} className="flex items-center flex-1 last:flex-none">
-              <div className="text-center">
+              <button type="button" onClick={() => setStep(i + 1)} className="text-center bg-transparent border-none cursor-pointer p-0">
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[.8rem] font-bold border-2 shrink-0 transition-all duration-200 ${
                   step > i + 1 ? 'border-success bg-success text-white' :
                   step === i + 1 ? 'border-primary bg-primary-light text-primary' :
@@ -206,7 +249,7 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase }: P
                 }`}>
                   {label}
                 </div>
-              </div>
+              </button>
               {i < stepLabels.length - 1 && (
                 <div className={`flex-1 h-0.5 mx-1 transition-colors duration-200 ${step > i + 1 ? 'bg-success' : 'bg-gray-200'}`} />
               )}
@@ -239,9 +282,7 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase }: P
                 </div>
                 <div>
                   <label className="text-[.77rem] text-gray-400 block mb-1">Duracion (semanas)</label>
-                  <select value={duration} onChange={(e) => setDuration(e.target.value)} className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] focus:border-primary focus:outline-none bg-card">
-                    {[4, 5, 6, 8, 10, 12].map((n) => <option key={n}>{n}</option>)}
-                  </select>
+                  <input type="number" min={1} max={52} value={duration} onChange={(e) => setDuration(e.target.value)} placeholder="ej: 6" className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] focus:border-primary focus:outline-none" />
                 </div>
               </div>
 
@@ -342,46 +383,63 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase }: P
           {step === 3 && (
             <div className="fade-in">
               <h3 className="text-[.95rem] font-bold mb-1">Nutricion y Actividad</h3>
-              <p className="text-[.77rem] text-gray-400 mb-4">Defini tus objetivos para esta fase.</p>
+              <p className="text-[.77rem] text-gray-400 mb-4">Defini tus objetivos para esta fase. Al poner calorias, los macros se calculan automaticamente.</p>
 
               <div className="mb-4">
                 <label className="text-[.77rem] text-gray-400 block mb-1">Calorias Diarias Objetivo</label>
-                <input type="number" value={cal} onChange={(e) => setCal(e.target.value)} placeholder="ej: 1650" className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] focus:border-primary focus:outline-none" />
+                <input type="number" value={cal} onChange={(e) => handleCalChange(e.target.value)} placeholder="ej: 1700" className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] focus:border-primary focus:outline-none" />
               </div>
 
               <div className="mb-4">
-                <div className="flex justify-between items-center mb-2">
-                  <label className="text-[.77rem] text-gray-400">Macros</label>
-                  <div className="inline-flex rounded-lg border-[1.5px] border-gray-200 overflow-hidden">
-                    <button
-                      onClick={() => setMacroMode('grams')}
-                      className={`py-1.5 px-4 text-[.8rem] font-semibold cursor-pointer border-none transition-all duration-200 ${macroMode === 'grams' ? 'bg-primary text-white' : 'text-gray-500 bg-card'}`}
-                    >
-                      Gramos
-                    </button>
-                    <button
-                      onClick={() => setMacroMode('pct')}
-                      className={`py-1.5 px-4 text-[.8rem] font-semibold cursor-pointer border-none transition-all duration-200 ${macroMode === 'pct' ? 'bg-primary text-white' : 'text-gray-500 bg-card'}`}
-                    >
-                      Porcentaje
-                    </button>
-                  </div>
+                <label className="text-[.77rem] text-gray-400 block mb-2">Macros</label>
+
+                {/* Macro rows: each shows label, grams input, percentage input, and visual bar */}
+                <div className="flex flex-col gap-3">
+                  {[
+                    { label: 'Proteina', color: 'bg-blue-500', gram: prot, pct: protPct, macro: 'prot' as const, calPerG: 4, placeholder: '120' },
+                    { label: 'Carbohidratos', color: 'bg-amber-500', gram: carbs, pct: carbsPct, macro: 'carbs' as const, calPerG: 4, placeholder: '170' },
+                    { label: 'Grasa', color: 'bg-rose-400', gram: fat, pct: fatPct, macro: 'fat' as const, calPerG: 9, placeholder: '57' },
+                  ].map((m) => (
+                    <div key={m.label}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`w-2.5 h-2.5 rounded-full ${m.color}`} />
+                        <span className="text-[.8rem] font-semibold text-gray-700 flex-1">{m.label}</span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="number"
+                            value={m.gram}
+                            onChange={(e) => handleGramChange(m.macro, e.target.value)}
+                            placeholder={m.placeholder}
+                            className="w-[70px] py-1.5 px-2 text-center text-[.85rem] border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none"
+                          />
+                          <span className="text-[.75rem] text-gray-400">g</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            value={m.pct}
+                            onChange={(e) => handlePctChange(m.macro, parseInt(e.target.value) || 0)}
+                            className="w-[55px] py-1.5 px-2 text-center text-[.85rem] border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none"
+                          />
+                          <span className="text-[.75rem] text-gray-400">%</span>
+                        </div>
+                      </div>
+                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className={`h-full ${m.color} rounded-full transition-all duration-300`} style={{ width: `${Math.min(m.pct, 100)}%` }} />
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
-                <div className="grid grid-cols-3 gap-2.5">
-                  <div>
-                    <label className="text-[.77rem] text-gray-400 block mb-1">Proteina (g)</label>
-                    <input type="number" value={prot} onChange={(e) => setProt(e.target.value)} placeholder="120" className="w-full py-2.5 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] focus:border-primary focus:outline-none" />
+                {/* Total percentage indicator */}
+                {cal && (
+                  <div className={`mt-2 text-[.78rem] font-medium ${
+                    protPct + carbsPct + fatPct === 100 ? 'text-success' :
+                    protPct + carbsPct + fatPct > 100 ? 'text-danger' : 'text-warning'
+                  }`}>
+                    Total: {protPct + carbsPct + fatPct}% {protPct + carbsPct + fatPct === 100 ? '\u2713' : `(${protPct + carbsPct + fatPct > 100 ? 'excede' : 'faltan'} ${Math.abs(100 - protPct - carbsPct - fatPct)}%)`}
                   </div>
-                  <div>
-                    <label className="text-[.77rem] text-gray-400 block mb-1">Carbohidratos (g)</label>
-                    <input type="number" value={carbs} onChange={(e) => setCarbs(e.target.value)} placeholder="165" className="w-full py-2.5 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] focus:border-primary focus:outline-none" />
-                  </div>
-                  <div>
-                    <label className="text-[.77rem] text-gray-400 block mb-1">Grasa (g)</label>
-                    <input type="number" value={fat} onChange={(e) => setFat(e.target.value)} placeholder="55" className="w-full py-2.5 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] focus:border-primary focus:outline-none" />
-                  </div>
-                </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-4">

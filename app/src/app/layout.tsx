@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 
@@ -7,6 +7,13 @@ const inter = Inter({
   variable: "--font-inter",
   weight: ["300", "400", "500", "600", "700", "800"],
 });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   title: "FitOS — Planificador de Entrenamiento",
@@ -17,6 +24,11 @@ export const metadata: Metadata = {
     title: "FitOS",
     description: "Tu cerebro de entrenamiento personal",
     siteName: "FitOS",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "FitOS",
   },
 };
 

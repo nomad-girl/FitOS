@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getCached, setCache } from '@/lib/cache'
 import type { Phase, RoutineWithExercises } from '@/lib/supabase/types'
 
 type PhaseWithRoutines = Phase & { routines: RoutineWithExercises[] }
@@ -13,7 +14,15 @@ export function useActivePhase() {
 
   const fetchActivePhase = useCallback(async () => {
     try {
-      setLoading(true)
+      // Check cache first
+      const cached = getCached<PhaseWithRoutines>('dashboard:activePhase')
+      if (cached) {
+        setPhase(cached)
+        setLoading(false)
+      } else {
+        setLoading(true)
+      }
+
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
 
@@ -70,7 +79,9 @@ export function useActivePhase() {
           })),
       }))
 
-      setPhase({ ...phaseData, routines: sortedRoutines as RoutineWithExercises[] })
+      const phaseWithRoutines = { ...phaseData, routines: sortedRoutines as RoutineWithExercises[] }
+      setPhase(phaseWithRoutines)
+      setCache('dashboard:activePhase', phaseWithRoutines)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error fetching active phase')
     } finally {

@@ -2,133 +2,156 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
-  const [sent, setSent] = useState(false)
+  const [password, setPassword] = useState('')
+  const [mode, setMode] = useState<'login' | 'signup'>('login')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const router = useRouter()
 
   const supabase = createClient()
 
-  async function sendMagicLink() {
-    if (!email) return
+  async function handleSubmit() {
+    if (!email || !password) {
+      setError('Completa email y contraseña')
+      return
+    }
+    if (mode === 'signup' && password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres')
+      return
+    }
+
     setLoading(true)
     setError('')
+    setSuccess('')
 
-    const { error: authError } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
+    if (mode === 'login') {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      })
 
-    setLoading(false)
+      setLoading(false)
 
-    if (authError) {
-      setError(authError.message)
-    } else {
-      setSent(true)
+      if (authError) {
+        if (authError.message.includes('Invalid login credentials')) {
+          setError('Email o contraseña incorrectos')
+        } else {
+          setError(authError.message)
+        }
+      } else {
+        router.push('/')
+        router.refresh()
+      }
+    } else if (mode === 'signup') {
+      const { error: authError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      })
+
+      setLoading(false)
+
+      if (authError) {
+        if (authError.message.includes('already registered')) {
+          setError('Este email ya esta registrado. Intenta iniciar sesion.')
+        } else {
+          setError(authError.message)
+        }
+      } else {
+        setSuccess('Cuenta creada. Revisa tu email para confirmar.')
+        setMode('login')
+      }
     }
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === 'Enter') sendMagicLink()
+    if (e.key === 'Enter') handleSubmit()
   }
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gradient-to-br from-primary-dark via-primary to-accent">
       <div className="bg-card rounded-[20px] p-12 px-10 w-[420px] max-w-[92vw] shadow-[0_20px_60px_rgba(0,0,0,.2)] text-center fade-scale">
-        {!sent ? (
-          <>
-            {/* Logo */}
-            <div className="text-[2rem] font-extrabold text-gray-800 mb-1.5">
-              Fit<span className="text-primary">OS</span>
-            </div>
-            <div className="text-gray-500 text-[.9rem] mb-8">
-              Tu cerebro de entrenamiento personal
-            </div>
+        {/* Logo */}
+        <div className="text-[2rem] font-extrabold text-gray-800 mb-1.5">
+          Fit<span className="text-primary">OS</span>
+        </div>
+        <div className="text-gray-500 text-[.9rem] mb-8">
+          Tu cerebro de entrenamiento personal
+        </div>
 
-            {/* Email Input */}
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="your@email.com"
-              autoComplete="email"
-              className="w-full py-3.5 px-[18px] border-[1.5px] border-gray-200 rounded-[12px] text-base text-center transition-all duration-200 outline-none focus:border-primary focus:shadow-[0_0_0_3px_rgba(14,165,233,.15)]"
-            />
+        {/* Email Input */}
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="tu@email.com"
+          autoComplete="email"
+          className="w-full py-3.5 px-[18px] border-[1.5px] border-gray-200 rounded-[12px] text-base transition-all duration-200 outline-none focus:border-primary focus:shadow-[0_0_0_3px_rgba(14,165,233,.15)] mb-3"
+        />
 
-            {error && (
-              <div className="text-danger text-[.82rem] mt-3">{error}</div>
-            )}
+        {/* Password Input */}
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Contraseña"
+          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+          className="w-full py-3.5 px-[18px] border-[1.5px] border-gray-200 rounded-[12px] text-base transition-all duration-200 outline-none focus:border-primary focus:shadow-[0_0_0_3px_rgba(14,165,233,.15)]"
+        />
 
-            {/* Submit Button */}
-            <button
-              onClick={sendMagicLink}
-              disabled={loading || !email}
-              className="w-full py-3.5 rounded-[12px] border-none bg-primary text-white font-bold text-base cursor-pointer mt-4 transition-all duration-200 hover:bg-primary-dark active:scale-[.98] disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Enviando...' : 'Enviar Link Magico'}
-            </button>
-
-            {/* Divider */}
-            <div className="text-gray-400 text-[.8rem] my-5">Sin contrasena</div>
-            <div className="text-gray-500 text-[.85rem] leading-relaxed">
-              Te enviamos un link seguro a tu email.<br />
-              Hace click para ingresar al instante.
-            </div>
-
-            {/* Skip for demo */}
-            <div className="mt-5">
-              <a
-                href="/?demo=1"
-                className="text-primary font-semibold text-[.82rem] cursor-pointer hover:underline"
-              >
-                Saltar para demo &rarr;
-              </a>
-            </div>
-          </>
-        ) : (
-          /* Check Inbox State */
-          <div className="text-center">
-            <div className="text-[3rem] mb-3">&#x2709;&#xFE0F;</div>
-            <h3 className="font-bold text-gray-800 text-lg mb-2">
-              Revisa tu bandeja de entrada
-            </h3>
-            <p className="text-gray-500 text-[.9rem] leading-relaxed">
-              Enviamos un link magico a<br />
-              <strong className="text-gray-800">{email}</strong>
-            </p>
-            <p className="mt-3 text-[.82rem] text-gray-400 leading-relaxed">
-              Hace click en el link del email para ingresar.<br />
-              Revisa spam si no lo ves.
-            </p>
-            <button
-              onClick={() => sendMagicLink()}
-              className="text-primary cursor-pointer font-semibold text-[.85rem] mt-4 inline-block bg-transparent border-none"
-            >
-              Reenviar email
-            </button>
-            <div className="mt-5">
-              <button
-                onClick={() => setSent(false)}
-                className="w-full py-3.5 rounded-[12px] border-none bg-gray-100 text-gray-700 font-semibold text-base cursor-pointer"
-              >
-                &larr; Usar otro email
-              </button>
-            </div>
-            <div className="mt-4">
-              <a
-                href="/?demo=1"
-                className="text-primary cursor-pointer text-[.82rem] font-semibold hover:underline"
-              >
-                Saltear (demo) &rarr;
-              </a>
-            </div>
-          </div>
+        {error && (
+          <div className="text-danger text-[.82rem] mt-3">{error}</div>
         )}
+        {success && (
+          <div className="text-success text-[.82rem] mt-3">{success}</div>
+        )}
+
+        {/* Submit Button */}
+        <button
+          onClick={handleSubmit}
+          disabled={loading || !email || !password}
+          className="w-full py-3.5 rounded-[12px] border-none bg-primary text-white font-bold text-base cursor-pointer mt-4 transition-all duration-200 hover:bg-primary-dark active:scale-[.98] disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {loading ? 'Cargando...' : mode === 'login' ? 'Iniciar Sesion' : 'Crear Cuenta'}
+        </button>
+
+        {/* Toggle login/signup */}
+        <div className="mt-4">
+          {mode === 'login' ? (
+            <button
+              onClick={() => { setMode('signup'); setError(''); setSuccess('') }}
+              className="text-primary font-semibold text-[.85rem] cursor-pointer bg-transparent border-none hover:underline"
+            >
+              No tenes cuenta? Registrate
+            </button>
+          ) : (
+            <button
+              onClick={() => { setMode('login'); setError(''); setSuccess('') }}
+              className="text-primary font-semibold text-[.85rem] cursor-pointer bg-transparent border-none hover:underline"
+            >
+              Ya tenes cuenta? Inicia sesion
+            </button>
+          )}
+        </div>
+
+        {/* Skip for demo */}
+        <div className="mt-5 pt-4 border-t border-gray-100">
+          <a
+            href="/?demo=1"
+            className="text-gray-400 font-medium text-[.8rem] cursor-pointer hover:text-primary hover:underline transition-colors"
+          >
+            Saltar para demo &rarr;
+          </a>
+        </div>
       </div>
 
       {/* Bottom tagline */}

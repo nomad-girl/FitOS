@@ -577,8 +577,37 @@ export default function ProgressPage() {
     <>
       <main className="flex-1 py-9 px-11 max-md:py-5 max-md:px-4 max-md:pb-[90px] overflow-x-hidden">
         {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <div className="text-gray-400 text-[.92rem]">Cargando progreso...</div>
+          <div>
+            <div className="mb-7">
+              <div className="bg-gray-200 animate-pulse rounded-[6px] h-7 w-32 mb-2" />
+              <div className="bg-gray-200 animate-pulse rounded-[6px] h-4 w-56" />
+            </div>
+            {/* Skeleton: Stats row */}
+            <div className="grid grid-cols-3 gap-4 mb-[18px] max-sm:grid-cols-1">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)] text-center">
+                  <div className="bg-gray-200 animate-pulse rounded-[6px] h-3 w-16 mx-auto mb-2" />
+                  <div className="bg-gray-200 animate-pulse rounded-[6px] h-6 w-20 mx-auto" />
+                </div>
+              ))}
+            </div>
+            {/* Skeleton: Chart card */}
+            <div className="bg-card rounded-[var(--radius)] p-[24px_26px] shadow-[var(--shadow)] mb-[18px]">
+              <div className="bg-gray-200 animate-pulse rounded-[6px] h-5 w-48 mb-4" />
+              <div className="bg-gray-200 animate-pulse rounded-[6px] h-[180px] w-full" />
+            </div>
+            {/* Skeleton: Table card */}
+            <div className="bg-card rounded-[var(--radius)] p-[24px_26px] shadow-[var(--shadow)] mb-[18px]">
+              <div className="bg-gray-200 animate-pulse rounded-[6px] h-5 w-40 mb-4" />
+              <div className="space-y-2">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex justify-between">
+                    <div className="bg-gray-200 animate-pulse rounded-[6px] h-3 w-32" />
+                    <div className="bg-gray-200 animate-pulse rounded-[6px] h-3 w-20" />
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         ) : hasNoData ? (
           <div className="fade-in">

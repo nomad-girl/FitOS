@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getCached, setCache, invalidateCache } from '@/lib/cache'
 import type { Phase, WeeklyCheckin, DailyLog } from '@/lib/supabase/types'
 
 type PerformanceTrend = 'down' | 'stable' | 'up'
@@ -14,6 +15,12 @@ function getWeekStart(date: Date): string {
   return d.toISOString().split('T')[0]
 }
 
+function getWeekStartWithOffset(offset: number): string {
+  const now = new Date()
+  now.setDate(now.getDate() + offset * 7)
+  return getWeekStart(now)
+}
+
 export default function CheckinPage() {
   const [showAnalysis, setShowAnalysis] = useState(false)
   const [performanceTrend, setPerformanceTrend] = useState<PerformanceTrend>('stable')
@@ -22,6 +29,9 @@ export default function CheckinPage() {
   const [phaseDecision, setPhaseDecision] = useState('Continuar')
   const [decisionNotes, setDecisionNotes] = useState('')
   const [checkinNotes, setCheckinNotes] = useState('')
+
+  // Week navigation
+  const [weekOffset, setWeekOffset] = useState(0)
 
   // Body measurements
   const [weight, setWeight] = useState('')
@@ -38,14 +48,59 @@ export default function CheckinPage() {
   const [saving, setSaving] = useState(false)
   const [savingDecision, setSavingDecision] = useState(false)
 
-  const weekStart = getWeekStart(new Date())
+  const weekStart = getWeekStartWithOffset(weekOffset)
+
+  // Compute week number for a given weekStart relative to phase start
+  function computeWeekNumber(phaseStartDate: string, targetWeekStart: string): number {
+    const start = new Date(phaseStartDate)
+    const target = new Date(targetWeekStart)
+    const diffMs = target.getTime() - start.getTime()
+    const diffWeeks = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 7))
+    return Math.max(1, diffWeeks + 1)
+  }
 
   const fetchData = useCallback(async () => {
     try {
-      setLoading(true)
+      // Check cache first
+      const cacheKey = `checkin:data:${weekStart}`
+      type CheckinCacheData = {
+        activePhase: Phase | null
+        weeklyLogs: DailyLog[]
+        existingCheckin: WeeklyCheckin | null
+        averages: Record<string, number | null>
+      }
+      const cached = getCached<CheckinCacheData>(cacheKey)
+      if (cached) {
+        setActivePhase(cached.activePhase)
+        setWeeklyLogs(cached.weeklyLogs)
+        setExistingCheckin(cached.existingCheckin)
+        setAverages(cached.averages)
+        if (cached.existingCheckin) {
+          if (cached.existingCheckin.weight_kg) setWeight(String(cached.existingCheckin.weight_kg))
+          if (cached.existingCheckin.waist_cm) setWaist(String(cached.existingCheckin.waist_cm))
+          if (cached.existingCheckin.hip_cm) setHip(String(cached.existingCheckin.hip_cm))
+          if (cached.existingCheckin.thigh_cm) setThigh(String(cached.existingCheckin.thigh_cm))
+          if (cached.existingCheckin.performance_trend) setPerformanceTrend(cached.existingCheckin.performance_trend as PerformanceTrend)
+          if (cached.existingCheckin.notes) setCheckinNotes(cached.existingCheckin.notes)
+        }
+        setLoading(false)
+      } else {
+        setLoading(true)
+      }
+
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+
+      // Reset form fields before loading new data
+      setWeight('')
+      setWaist('')
+      setHip('')
+      setThigh('')
+      setPerformanceTrend('stable')
+      setCheckinNotes('')
+      setExistingCheckin(null)
+      setShowAnalysis(false)
 
       // Fetch active phase
       const { data: phaseData } = await supabase
@@ -55,15 +110,14 @@ export default function CheckinPage() {
         .eq('status', 'active')
         .single()
 
+      let fetchedCheckin: WeeklyCheckin | null = null
       if (phaseData) {
         setActivePhase(phaseData)
 
-        // Compute week number
-        let weekNum = 1
-        if (phaseData.start_date) {
-          const startDate = new Date(phaseData.start_date)
-          weekNum = Math.max(1, Math.ceil((new Date().getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 7)))
-        }
+        // Compute week number based on the viewed week, not current date
+        const weekNum = phaseData.start_date
+          ? computeWeekNumber(phaseData.start_date, weekStart)
+          : 1
 
         // Fetch existing checkin
         const { data: checkinData } = await supabase
@@ -75,6 +129,7 @@ export default function CheckinPage() {
           .single()
 
         if (checkinData) {
+          fetchedCheckin = checkinData
           setExistingCheckin(checkinData)
           if (checkinData.weight_kg) setWeight(String(checkinData.weight_kg))
           if (checkinData.waist_cm) setWaist(String(checkinData.waist_cm))
@@ -107,7 +162,7 @@ export default function CheckinPage() {
           return Math.round((valid.reduce((a, b) => a + b, 0) / valid.length) * 10) / 10
         }
 
-        setAverages({
+        const computedAverages = {
           avg_calories: avg(logs.map((l) => l.calories)) !== null ? Math.round(avg(logs.map((l) => l.calories))!) : null,
           avg_protein: avg(logs.map((l) => l.protein_g)) !== null ? Math.round(avg(logs.map((l) => l.protein_g))!) : null,
           avg_steps: avg(logs.map((l) => l.steps)) !== null ? Math.round(avg(logs.map((l) => l.steps))!) : null,
@@ -115,7 +170,16 @@ export default function CheckinPage() {
           avg_energy: avg(logs.map((l) => l.energy)),
           avg_hunger: avg(logs.map((l) => l.hunger)),
           avg_fatigue: avg(logs.map((l) => l.fatigue_level)),
-        })
+        }
+        setAverages(computedAverages)
+
+        // Cache the fetched data
+        setCache(cacheKey, {
+          activePhase: phaseData ?? null,
+          weeklyLogs: logs,
+          existingCheckin: fetchedCheckin,
+          averages: computedAverages,
+        } as CheckinCacheData)
       }
     } catch (err) {
       console.error('Error fetching checkin data:', err)
@@ -130,8 +194,18 @@ export default function CheckinPage() {
 
   let weekNumber = 1
   if (activePhase?.start_date) {
-    const startDate = new Date(activePhase.start_date)
-    weekNumber = Math.max(1, Math.ceil((new Date().getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 7)))
+    weekNumber = computeWeekNumber(activePhase.start_date, weekStart)
+  }
+
+  // Format the week date range for display
+  function formatWeekRange(ws: string): string {
+    const start = new Date(ws + 'T00:00:00')
+    const end = new Date(start)
+    end.setDate(end.getDate() + 6)
+    const opts: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short' }
+    const startStr = start.toLocaleDateString('es-AR', opts)
+    const endStr = end.toLocaleDateString('es-AR', opts)
+    return `${startStr} - ${endStr}`
   }
 
   async function handleSaveCheckin(showAnalysisAfter: boolean) {
@@ -163,6 +237,7 @@ export default function CheckinPage() {
         updated_at: new Date().toISOString(),
       }
 
+      // Try upsert first
       const { data: savedCheckin, error } = await supabase
         .from('weekly_checkins')
         .upsert(checkinData, { onConflict: 'user_id,phase_id,week_number' })
@@ -170,12 +245,56 @@ export default function CheckinPage() {
         .single()
 
       if (error) {
-        console.error('Error saving checkin:', error)
-        alert('Error guardando check-in: ' + error.message)
+        // If upsert fails (e.g. missing unique constraint), fall back to insert-or-update
+        console.warn('Upsert failed, trying fallback:', error.message)
+
+        // Check if a record already exists
+        const { data: existing } = await supabase
+          .from('weekly_checkins')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('phase_id', activePhase.id)
+          .eq('week_number', weekNumber)
+          .single()
+
+        if (existing) {
+          // Update existing record
+          const { data: updated, error: updateError } = await supabase
+            .from('weekly_checkins')
+            .update(checkinData)
+            .eq('id', existing.id)
+            .select()
+            .single()
+
+          if (updateError) {
+            console.error('Error updating checkin:', updateError)
+            alert('Error guardando check-in: ' + updateError.message)
+            return
+          }
+          setExistingCheckin(updated)
+        } else {
+          // Insert new record
+          const { data: inserted, error: insertError } = await supabase
+            .from('weekly_checkins')
+            .insert(checkinData)
+            .select()
+            .single()
+
+          if (insertError) {
+            console.error('Error inserting checkin:', insertError)
+            alert('Error guardando check-in: ' + insertError.message)
+            return
+          }
+          setExistingCheckin(inserted)
+        }
+
+        invalidateCache('checkin:')
+        if (showAnalysisAfter) setShowAnalysis(true)
         return
       }
 
       setExistingCheckin(savedCheckin)
+      invalidateCache('checkin:')
       if (showAnalysisAfter) setShowAnalysis(true)
     } catch (err) {
       console.error('Error:', err)
@@ -221,6 +340,7 @@ export default function CheckinPage() {
         return
       }
 
+      invalidateCache('checkin:')
       alert('Decision registrada!')
     } catch (err) {
       console.error('Error:', err)
@@ -232,7 +352,34 @@ export default function CheckinPage() {
   if (loading) {
     return (
       <main className="flex-1 py-9 px-11 max-md:py-5 max-md:px-4 max-md:pb-[90px] overflow-x-hidden">
-        <div className="text-gray-400 text-[.9rem]">Cargando check-in...</div>
+        <div className="mb-7">
+          <div className="bg-gray-200 animate-pulse rounded-[6px] h-7 w-48 mb-2" />
+          <div className="bg-gray-200 animate-pulse rounded-[6px] h-4 w-64" />
+        </div>
+        {/* Skeleton: Body measurements card */}
+        <div className="bg-card rounded-[var(--radius)] p-[24px_26px] shadow-[var(--shadow)] mb-[18px]">
+          <div className="bg-gray-200 animate-pulse rounded-[6px] h-5 w-40 mb-4" />
+          <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i}>
+                <div className="bg-gray-200 animate-pulse rounded-[6px] h-3 w-20 mb-2" />
+                <div className="bg-gray-200 animate-pulse rounded-[var(--radius-sm)] h-10 w-full" />
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Skeleton: Averages card */}
+        <div className="bg-gray-50 rounded-[var(--radius)] p-[24px_26px] shadow-[var(--shadow)] mb-[18px]">
+          <div className="bg-gray-200 animate-pulse rounded-[6px] h-5 w-44 mb-4" />
+          <div className="grid grid-cols-2 gap-4 max-sm:grid-cols-1">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="flex justify-between">
+                <div className="bg-gray-200 animate-pulse rounded-[6px] h-3 w-20" />
+                <div className="bg-gray-200 animate-pulse rounded-[6px] h-3 w-16" />
+              </div>
+            ))}
+          </div>
+        </div>
       </main>
     )
   }
@@ -249,9 +396,37 @@ export default function CheckinPage() {
         <div className="flex justify-between items-center">
           <div>
             <h1 className="text-[1.6rem] font-extrabold text-gray-900 tracking-tight">Check-in Semanal</h1>
-            <p className="text-gray-500 text-[.9rem] mt-1">
-              Semana {weekNumber} &middot; {activePhase?.name ?? 'Sin fase activa'}
-            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <button
+                onClick={() => setWeekOffset((prev) => prev - 1)}
+                className="inline-flex items-center justify-center w-7 h-7 rounded-full border-[1.5px] border-gray-200 text-gray-400 bg-transparent cursor-pointer hover:border-primary hover:text-primary transition-all duration-200 text-[1rem] font-bold leading-none"
+                title="Semana anterior"
+              >
+                &larr;
+              </button>
+              <p className="text-gray-500 text-[.9rem]">
+                Semana {weekNumber} &middot; {activePhase?.name ?? 'Sin fase activa'}
+                <span className="text-gray-400 text-[.77rem] ml-1.5">
+                  ({formatWeekRange(weekStart)})
+                </span>
+              </p>
+              <button
+                onClick={() => setWeekOffset((prev) => prev + 1)}
+                disabled={weekOffset >= 0}
+                className="inline-flex items-center justify-center w-7 h-7 rounded-full border-[1.5px] border-gray-200 text-gray-400 bg-transparent cursor-pointer hover:border-primary hover:text-primary transition-all duration-200 text-[1rem] font-bold leading-none disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:border-gray-200 disabled:hover:text-gray-400"
+                title="Semana siguiente"
+              >
+                &rarr;
+              </button>
+              {weekOffset !== 0 && (
+                <button
+                  onClick={() => setWeekOffset(0)}
+                  className="text-[.75rem] text-primary font-semibold bg-primary-light px-2.5 py-[3px] rounded-full cursor-pointer border-none hover:bg-primary hover:text-white transition-all duration-200"
+                >
+                  Hoy
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

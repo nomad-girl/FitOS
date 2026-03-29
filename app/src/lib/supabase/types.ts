@@ -24,6 +24,7 @@ export interface Database {
           hevy_last_sync_at: string | null
           hevy_sync_status: string | null
           coach_context: string | null
+          week_start_day: string | null
           created_at: string
           updated_at: string
         }
@@ -44,6 +45,7 @@ export interface Database {
           hevy_last_sync_at?: string | null
           hevy_sync_status?: string | null
           coach_context?: string | null
+          week_start_day?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -64,6 +66,7 @@ export interface Database {
           hevy_last_sync_at?: string | null
           hevy_sync_status?: string | null
           coach_context?: string | null
+          week_start_day?: string | null
           updated_at?: string
         }
       }

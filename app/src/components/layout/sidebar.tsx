@@ -51,6 +51,21 @@ export function Sidebar({ onProfileClick }: SidebarProps) {
         ))}
       </nav>
 
+      {/* Settings Link */}
+      <div className="px-2.5 mb-1">
+        <Link
+          href="/settings"
+          className={`flex items-center gap-3 py-[11px] px-4 rounded-[var(--radius-sm)] font-medium text-[.92rem] transition-all duration-200 no-underline ${
+            isActive('/settings')
+              ? 'bg-primary-light text-primary-dark font-semibold'
+              : 'text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+          }`}
+        >
+          <span className="text-[1.1rem] w-[22px] text-center">{'\u2699\uFE0F'}</span>
+          Configuracion
+        </Link>
+      </div>
+
       {/* Divider */}
       <div className="h-px bg-gray-100 mx-4" />
 

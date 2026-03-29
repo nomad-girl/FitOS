@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getCached, setCache } from '@/lib/cache'
 import type { DailyLog, WeeklyCheckin } from '@/lib/supabase/types'
 
 interface WeeklyAverages {
@@ -36,7 +37,16 @@ export function useWeeklyData(phaseId?: string | null) {
 
   const fetchWeeklyData = useCallback(async () => {
     try {
-      setLoading(true)
+      // Check cache first
+      const cacheKey = `dashboard:weeklyData:${phaseId ?? 'none'}`
+      const cached = getCached<WeeklyData>(cacheKey)
+      if (cached) {
+        setData(cached)
+        setLoading(false)
+      } else {
+        setLoading(true)
+      }
+
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
@@ -102,7 +112,9 @@ export function useWeeklyData(phaseId?: string | null) {
         checkin = checkinData
       }
 
-      setData({ logs: validLogs, averages, checkin })
+      const weeklyData: WeeklyData = { logs: validLogs, averages, checkin }
+      setData(weeklyData)
+      setCache(cacheKey, weeklyData)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error fetching weekly data')
     } finally {

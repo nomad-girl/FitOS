@@ -9,6 +9,7 @@ import { RightPanel } from '@/components/layout/right-panel'
 import { useActivePhase } from '@/lib/hooks/useActivePhase'
 import { useWeeklyData } from '@/lib/hooks/useWeeklyData'
 import { createClient } from '@/lib/supabase/client'
+import { getCached, setCache } from '@/lib/cache'
 import type { Insight } from '@/lib/supabase/types'
 
 const dayNames = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
@@ -25,12 +26,19 @@ export default function DashboardPage() {
   const { phase, loading: phaseLoading } = useActivePhase()
   const { data: weeklyData, loading: weeklyLoading } = useWeeklyData(phase?.id)
   const [insights, setInsights] = useState<Insight[]>([])
-  const [seeding, setSeeding] = useState(false)
-  const [seedDone, setSeedDone] = useState(false)
+  const [, setSeeding] = useState(false)
+  const [, setSeedDone] = useState(false)
 
   const fetchInsights = useCallback(async () => {
     if (!phase) return
     try {
+      // Check cache first
+      const cacheKey = `dashboard:insights:${phase.id}`
+      const cached = getCached<Insight[]>(cacheKey)
+      if (cached) {
+        setInsights(cached)
+      }
+
       const supabase = createClient()
       const { data: { user } } = await supabase.auth.getUser()
       const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
@@ -42,7 +50,10 @@ export default function DashboardPage() {
         .eq('is_dismissed', false)
         .order('created_at', { ascending: false })
         .limit(5)
-      if (data) setInsights(data)
+      if (data) {
+        setInsights(data)
+        setCache(cacheKey, data)
+      }
     } catch {
       // ignore
     }
@@ -127,7 +138,7 @@ export default function DashboardPage() {
   // Top insight
   const topInsight = insights.find((i) => i.severity === 'warning') ?? insights[0] ?? null
 
-  // ─── No data: show seed card ────────────────────────────────────
+  // ─── No data: show onboarding ────────────────────────────────────
   if (!loading && !phase) {
     return (
       <>
@@ -138,30 +149,40 @@ export default function DashboardPage() {
           </div>
 
           <div className="bg-gradient-to-br from-[#1d9be2] to-[#1aafcf] text-white rounded-[var(--radius)] p-[40px_30px] text-center fade-in">
-            <div className="text-[2rem] mb-3">{'\uD83C\uDF89'}</div>
+            <div className="text-[2rem] mb-3">{'\uD83D\uDCAA'}</div>
             <div className="font-extrabold text-[1.3rem] mb-2">Bienvenida a FitOS!</div>
             <div className="text-[.95rem] opacity-90 mb-6 max-w-[400px] mx-auto">
-              Carga datos de demo para explorar la app con rutinas, registros diarios y check-ins de ejemplo.
+              Para empezar, crea tu primera fase de entrenamiento. Despues vas a poder loguear sesiones, hacer check-ins y ver tu progreso.
             </div>
-            <button
-              onClick={handleSeed}
-              disabled={seeding || seedDone}
-              className="py-3 px-8 rounded-[var(--radius-sm)] bg-white text-primary-dark font-bold text-[.95rem] border-none cursor-pointer shadow-[0_2px_8px_rgba(0,0,0,.15)] transition-all duration-200 hover:shadow-[0_4px_16px_rgba(0,0,0,.2)] hover:-translate-y-px disabled:opacity-60 disabled:cursor-not-allowed"
+            <Link
+              href="/plan"
+              className="inline-block py-3 px-8 rounded-[var(--radius-sm)] bg-white text-primary-dark font-bold text-[.95rem] border-none cursor-pointer shadow-[0_2px_8px_rgba(0,0,0,.15)] transition-all duration-200 hover:shadow-[0_4px_16px_rgba(0,0,0,.2)] hover:-translate-y-px no-underline"
             >
-              {seeding ? 'Cargando...' : seedDone ? 'Datos cargados!' : 'Cargar Demo'}
-            </button>
+              Crear mi primera fase
+            </Link>
           </div>
 
-          <div className="mt-6 text-center text-[.84rem] text-gray-400">
-            O crea tu primera fase desde{' '}
-            <Link href="/plan" className="text-primary font-semibold no-underline hover:underline">
-              Plan
-            </Link>
+          <div className="mt-8 grid grid-cols-3 gap-4 max-sm:grid-cols-1">
+            <div className="bg-card rounded-[var(--radius)] p-5 shadow-[var(--shadow)] text-center fade-in" style={{ animationDelay: '.1s' }}>
+              <div className="text-[1.5rem] mb-2">{'\uD83D\uDCCB'}</div>
+              <div className="font-bold text-[.9rem] text-gray-800 mb-1">1. Crea una fase</div>
+              <div className="text-[.82rem] text-gray-400">Define objetivo, duracion y rutinas</div>
+            </div>
+            <div className="bg-card rounded-[var(--radius)] p-5 shadow-[var(--shadow)] text-center fade-in" style={{ animationDelay: '.15s' }}>
+              <div className="text-[1.5rem] mb-2">{'\uD83D\uDCDD'}</div>
+              <div className="font-bold text-[.9rem] text-gray-800 mb-1">2. Logueá tus dias</div>
+              <div className="text-[.82rem] text-gray-400">Calorias, proteina, pasos, energia y sueno</div>
+            </div>
+            <div className="bg-card rounded-[var(--radius)] p-5 shadow-[var(--shadow)] text-center fade-in" style={{ animationDelay: '.2s' }}>
+              <div className="text-[1.5rem] mb-2">{'\uD83D\uDCCA'}</div>
+              <div className="font-bold text-[.9rem] text-gray-800 mb-1">3. Revisa tu progreso</div>
+              <div className="text-[.82rem] text-gray-400">Check-ins semanales con analisis de IA</div>
+            </div>
           </div>
         </main>
         <RightPanel>
           <div className="text-center py-10 text-gray-400 text-[.9rem]">
-            Sin datos todavia
+            Crea tu primera fase para empezar
           </div>
         </RightPanel>
       </>
@@ -174,10 +195,38 @@ export default function DashboardPage() {
         <main className="flex-1 py-9 px-11 max-md:py-5 max-md:px-4 max-md:pb-[90px] overflow-x-hidden">
           <div className="mb-7">
             <h1 className="text-[1.6rem] font-extrabold text-gray-900 tracking-tight">Inicio</h1>
-            <p className="text-gray-500 text-[.9rem] mt-1">Cargando...</p>
+            <p className="text-gray-500 text-[.9rem] mt-1">Tu semana de un vistazo</p>
+          </div>
+          {/* Skeleton: Week Status Bar */}
+          <div className="bg-gray-200 animate-pulse rounded-[var(--radius)] h-[120px] mb-[18px]" />
+          {/* Skeleton: Next Session */}
+          <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)] mb-[18px]">
+            <div className="bg-gray-200 animate-pulse rounded-[6px] h-4 w-36 mb-3" />
+            <div className="flex justify-between items-center">
+              <div>
+                <div className="bg-gray-200 animate-pulse rounded-[6px] h-4 w-44 mb-2" />
+                <div className="bg-gray-200 animate-pulse rounded-[6px] h-3 w-28" />
+              </div>
+              <div className="bg-gray-200 animate-pulse rounded-full h-5 w-20" />
+            </div>
+          </div>
+          {/* Skeleton: Metrics */}
+          <div className="grid grid-cols-3 gap-4 max-sm:grid-cols-1">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)] mb-[18px] text-center">
+                <div className="bg-gray-200 animate-pulse rounded-[6px] h-3 w-16 mx-auto mb-2" />
+                <div className="bg-gray-200 animate-pulse rounded-[6px] h-6 w-20 mx-auto" />
+              </div>
+            ))}
           </div>
         </main>
-        <RightPanel><div /></RightPanel>
+        <RightPanel>
+          <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)] mb-5">
+            <div className="bg-gray-200 animate-pulse rounded-[6px] h-4 w-32 mb-3" />
+            <div className="bg-gray-200 animate-pulse rounded-[6px] h-3 w-full mb-2" />
+            <div className="bg-gray-200 animate-pulse rounded-[6px] h-2 w-full" />
+          </div>
+        </RightPanel>
       </>
     )
   }

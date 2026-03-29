@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { Sidebar } from '@/components/layout/sidebar'
 import { BottomTabs } from '@/components/layout/bottom-tabs'
 import { QuickLogDrawer } from '@/components/shared/quick-log-drawer'
@@ -20,8 +21,30 @@ export default function AppLayout({
       <Sidebar onProfileClick={() => setProfileOpen(true)} />
 
       {/* Main Area */}
-      <div className="flex-1 ml-[var(--sidebar-w)] flex min-h-screen max-md:ml-0">
-        {children}
+      <div className="flex-1 ml-[var(--sidebar-w)] flex flex-col min-h-screen max-md:ml-0">
+        {/* Mobile Header */}
+        <div className="hidden max-md:flex items-center justify-between px-4 py-3 bg-card border-b border-gray-100 sticky top-0 z-[150]">
+          <div className="text-[1.1rem] font-extrabold text-gray-800">
+            Fit<span className="text-primary">OS</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/settings"
+              className="w-9 h-9 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center text-[1.1rem] no-underline hover:bg-gray-200 transition-colors"
+            >
+              {'\u2699\uFE0F'}
+            </Link>
+            <button
+              onClick={() => setProfileOpen(true)}
+              className="w-9 h-9 rounded-full bg-primary-light text-primary flex items-center justify-center font-bold text-[.85rem] cursor-pointer border-none hover:bg-primary hover:text-white transition-all duration-200"
+            >
+              {'\uD83D\uDC64'}
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 flex">
+          {children}
+        </div>
       </div>
 
       {/* FAB Button */}

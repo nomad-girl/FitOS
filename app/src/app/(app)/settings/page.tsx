@@ -4,6 +4,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
+import { syncHevyWorkouts } from '@/lib/hevy/sync'
 
 const DAY_OPTIONS = [
   { value: 'saturday', label: 'Sabado' },
@@ -23,15 +25,17 @@ export default function SettingsPage() {
   const [weekStartDay, setWeekStartDay] = useState('saturday')
   const [checkinDay, setCheckinDay] = useState('saturday')
 
-  // Hevy status
+  // Hevy state
   const [hevyConnected, setHevyConnected] = useState(false)
+  const [hevySyncing, setHevySyncing] = useState(false)
+  const [hevyStatus, setHevyStatus] = useState<string | null>(null)
+  const [hevyLastSync, setHevyLastSync] = useState<string | null>(null)
 
   useEffect(() => {
     async function loadProfile() {
       try {
         const supabase = createClient()
-        const { data: { user } } = await supabase.auth.getUser()
-        const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+        const userId = await getUserId()
 
         const { data } = await supabase
           .from('profiles')
@@ -43,8 +47,16 @@ export default function SettingsPage() {
           setDisplayName(data.display_name ?? data.full_name ?? '')
           setWeekStartDay(data.week_start_day ?? 'saturday')
           setCheckinDay(data.checkin_day ?? 'saturday')
-          // Check Hevy connection from profile
-          setHevyConnected(!!data.hevy_api_key_encrypted)
+          setHevyLastSync(data.hevy_last_sync_at ?? null)
+          // Quick check if Hevy API is configured server-side
+          setHevyConnected(!!data.hevy_last_sync_at || !!data.hevy_api_key_encrypted)
+        }
+        // Auto-test Hevy connection on load
+        try {
+          const testRes = await fetch('/api/hevy?endpoint=workouts&page=1&page_size=1')
+          setHevyConnected(testRes.ok)
+        } catch {
+          setHevyConnected(false)
         }
       } catch {
         // ignore
@@ -61,8 +73,7 @@ export default function SettingsPage() {
     setSaveMessage(null)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const { error } = await supabase
         .from('profiles')
@@ -85,6 +96,55 @@ export default function SettingsPage() {
       setSaveMessage('Error al guardar los cambios')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleHevyTest() {
+    setHevyStatus(null)
+    setHevySyncing(true)
+    try {
+      const res = await fetch('/api/hevy?endpoint=workouts&page=1&page_size=1')
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setHevyStatus(`❌ Error: ${err.error || res.status}`)
+        setHevyConnected(false)
+        return
+      }
+      const data = await res.json()
+      const count = data.workouts?.length ?? 0
+      setHevyConnected(true)
+      setHevyStatus(`✅ Conectado — ${data.page_count} paginas de workouts disponibles`)
+      if (count > 0 && data.workouts[0]?.title) {
+        setHevyStatus(prev => `${prev}\nUltimo: "${data.workouts[0].title}"`)
+      }
+    } catch (err) {
+      setHevyStatus(`❌ Error de conexion: ${err instanceof Error ? err.message : String(err)}`)
+      setHevyConnected(false)
+    } finally {
+      setHevySyncing(false)
+    }
+  }
+
+  async function handleHevySync() {
+    setHevySyncing(true)
+    setHevyStatus('Iniciando sincronizacion...')
+    try {
+      const userId = await getUserId()
+      const result = await syncHevyWorkouts(userId, (msg) => {
+        setHevyStatus(msg)
+      })
+
+      if (result.errors.length > 0) {
+        setHevyStatus(`⚠️ ${result.synced} importados, ${result.skipped} existentes, ${result.errors.length} errores`)
+      } else {
+        setHevyStatus(`✅ ${result.synced} workouts importados, ${result.skipped} ya existian`)
+      }
+      setHevyLastSync(new Date().toISOString())
+      setHevyConnected(true)
+    } catch (err) {
+      setHevyStatus(`❌ Error: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setHevySyncing(false)
     }
   }
 
@@ -198,20 +258,51 @@ export default function SettingsPage() {
 
           {/* Integrations Section */}
           <div className="bg-card rounded-[var(--radius)] p-6 shadow-[var(--shadow)] fade-in" style={{ animationDelay: '.05s' }}>
-            <div className="font-bold text-[1.08rem] text-gray-800 mb-5">Integraciones</div>
+            <div className="font-bold text-[1.08rem] text-gray-800 mb-5">Hevy — Integracion</div>
 
-            <div className="flex justify-between items-center p-[14px_18px] bg-gray-50/50 rounded-[var(--radius-sm)]">
-              <div className="flex flex-col gap-1">
-                <span className="font-medium text-[.92rem] text-gray-800">Hevy API</span>
-                <span className={`inline-flex w-fit px-2.5 py-[3px] rounded-full text-[.73rem] font-semibold ${
-                  hevyConnected
-                    ? 'bg-success-light text-[#065F46]'
-                    : 'bg-gray-100 text-gray-400'
-                }`}>
-                  {hevyConnected ? 'Conectado' : 'No conectado'}
-                </span>
+            <div className="p-[14px_18px] bg-gray-50/50 rounded-[var(--radius-sm)] space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="flex flex-col gap-1">
+                  <span className="font-medium text-[.92rem] text-gray-800">Hevy API</span>
+                  <span className={`inline-flex w-fit px-2.5 py-[3px] rounded-full text-[.73rem] font-semibold ${
+                    hevyConnected
+                      ? 'bg-success-light text-[#065F46]'
+                      : 'bg-gray-100 text-gray-400'
+                  }`}>
+                    {hevyConnected ? 'Conectado' : 'No conectado'}
+                  </span>
+                </div>
+                {hevyLastSync && (
+                  <span className="text-[.75rem] text-gray-400">
+                    Ultimo sync: {new Date(hevyLastSync).toLocaleDateString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                )}
               </div>
-              <div className="text-gray-300 text-[1.1rem]">&rsaquo;</div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <button
+                  onClick={handleHevyTest}
+                  disabled={hevySyncing}
+                  className="flex-1 py-2.5 rounded-[var(--radius-sm)] border border-gray-200 bg-white text-gray-700 font-semibold text-[.85rem] cursor-pointer transition-all duration-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {hevySyncing ? '...' : 'Probar Conexion'}
+                </button>
+                <button
+                  onClick={handleHevySync}
+                  disabled={hevySyncing}
+                  className="flex-1 py-2.5 rounded-[var(--radius-sm)] bg-primary text-white font-semibold text-[.85rem] cursor-pointer border-none transition-all duration-200 hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {hevySyncing ? 'Sincronizando...' : '🔄 Sincronizar Workouts'}
+                </button>
+              </div>
+
+              {/* Status Message */}
+              {hevyStatus && (
+                <div className="text-[.82rem] text-gray-600 whitespace-pre-line bg-white rounded-[var(--radius-sm)] p-3 border border-gray-100">
+                  {hevyStatus}
+                </div>
+              )}
             </div>
           </div>
 

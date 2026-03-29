@@ -28,6 +28,16 @@ export default function DashboardPage() {
   const [insights, setInsights] = useState<Insight[]>([])
   const [, setSeeding] = useState(false)
   const [, setSeedDone] = useState(false)
+  const [showChart, setShowChart] = useState(false)
+  const [chartVars, setChartVars] = useState<Record<string, boolean>>({
+    calories: true,
+    protein: true,
+    energy: true,
+    hunger: true,
+    fatigue: false,
+    steps: false,
+    sleep: false,
+  })
 
   const fetchInsights = useCallback(async () => {
     if (!phase) return
@@ -348,55 +358,187 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* E. Daily Averages Table */}
+        {/* E. Daily Averages Table + Chart */}
         <div
           className="bg-card rounded-[var(--radius)] p-[24px_26px] shadow-[var(--shadow)] mb-[18px] overflow-x-auto fade-in"
           style={{ animationDelay: '.2s' }}
         >
-          <div className="font-bold text-[1.08rem] text-gray-800 mb-2.5 flex items-center gap-2">
-            {'\uD83D\uDCCA'} Registros Diarios de la Semana
+          <div className="flex justify-between items-center mb-2.5">
+            <div className="font-bold text-[1.08rem] text-gray-800 flex items-center gap-2">
+              {'\uD83D\uDCCA'} Registros Diarios de la Semana
+            </div>
+            <button
+              onClick={() => setShowChart(!showChart)}
+              className={`py-1.5 px-3 rounded-[var(--radius-xs)] text-[.78rem] font-semibold cursor-pointer border-[1.5px] transition-all duration-200 ${
+                showChart
+                  ? 'bg-primary text-white border-primary'
+                  : 'bg-transparent text-gray-500 border-gray-200 hover:border-primary hover:text-primary'
+              }`}
+            >
+              {showChart ? '📋 Tabla' : '📈 Grafico'}
+            </button>
           </div>
-          <table className="w-full text-[.8rem] border-collapse">
-            <thead>
-              <tr>
-                <th className="py-[7px] px-2 text-center text-gray-400 font-semibold text-[.72rem] uppercase"></th>
-                {dayLabels.map((d) => (
-                  <th key={d} className="py-[7px] px-2 text-center text-gray-400 font-semibold text-[.72rem] uppercase">{d}</th>
+
+          {!showChart ? (
+            /* ── TABLE VIEW ── */
+            <table className="w-full text-[.8rem] border-collapse">
+              <thead>
+                <tr>
+                  <th className="py-[7px] px-2 text-center text-gray-400 font-semibold text-[.72rem] uppercase"></th>
+                  {dayLabels.map((d) => (
+                    <th key={d} className="py-[7px] px-2 text-center text-gray-400 font-semibold text-[.72rem] uppercase">{d}</th>
+                  ))}
+                  <th className="py-[7px] px-2 text-center text-primary font-semibold text-[.72rem] uppercase">Prom</th>
+                </tr>
+              </thead>
+              <tbody className="text-gray-600">
+                <tr className="border-b border-gray-50">
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Cal</td>
+                  {dayLabels.map((d) => (
+                    <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.calories ?? '\u2014'}</td>
+                  ))}
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_calories ?? '\u2014'}</td>
+                </tr>
+                <tr className="border-b border-gray-50">
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Prot</td>
+                  {dayLabels.map((d) => (
+                    <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.protein_g ?? '\u2014'}</td>
+                  ))}
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_protein ? `${averages.avg_protein}g` : '\u2014'}</td>
+                </tr>
+                <tr className="border-b border-gray-50">
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Pasos</td>
+                  {dayLabels.map((d) => (
+                    <td key={d} className="py-[7px] px-2 text-center">{formatSteps(logsByDay[d]?.steps ?? null) ?? '\u2014'}</td>
+                  ))}
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{formatSteps(averages?.avg_steps ?? null) ?? '\u2014'}</td>
+                </tr>
+                <tr className="border-b border-gray-50">
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Sueno</td>
+                  {dayLabels.map((d) => (
+                    <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.sleep_hours ?? '\u2014'}</td>
+                  ))}
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_sleep_hours ? `${averages.avg_sleep_hours}h` : '\u2014'}</td>
+                </tr>
+                <tr className="border-b border-gray-50">
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Energia</td>
+                  {dayLabels.map((d) => (
+                    <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.energy ?? '\u2014'}</td>
+                  ))}
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_energy ?? '\u2014'}</td>
+                </tr>
+                <tr className="border-b border-gray-50">
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Hambre</td>
+                  {dayLabels.map((d) => (
+                    <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.hunger ?? '\u2014'}</td>
+                  ))}
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_hunger ?? '\u2014'}</td>
+                </tr>
+                <tr>
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Fatiga</td>
+                  {dayLabels.map((d) => (
+                    <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.fatigue_level ?? '\u2014'}</td>
+                  ))}
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_fatigue ?? '\u2014'}</td>
+                </tr>
+              </tbody>
+            </table>
+          ) : (
+            /* ── CHART VIEW ── */
+            <div className="fade-in">
+              {/* Variable toggles */}
+              <div className="flex flex-wrap gap-1.5 mb-4">
+                {([
+                  { key: 'calories', label: 'Cal', color: '#0EA5E9' },
+                  { key: 'protein', label: 'Prot', color: '#8B5CF6' },
+                  { key: 'energy', label: 'Energia', color: '#10B981' },
+                  { key: 'hunger', label: 'Hambre', color: '#F59E0B' },
+                  { key: 'fatigue', label: 'Fatiga', color: '#EF4444' },
+                  { key: 'steps', label: 'Pasos', color: '#06B6D4' },
+                  { key: 'sleep', label: 'Sueno', color: '#6366F1' },
+                ] as const).map((v) => (
+                  <button
+                    key={v.key}
+                    onClick={() => setChartVars((prev) => ({ ...prev, [v.key]: !prev[v.key] }))}
+                    className={`py-1 px-2.5 rounded-full text-[.72rem] font-semibold cursor-pointer border-[1.5px] transition-all duration-200 flex items-center gap-1`}
+                    style={{
+                      borderColor: chartVars[v.key] ? v.color : '#E5E7EB',
+                      backgroundColor: chartVars[v.key] ? `${v.color}15` : 'transparent',
+                      color: chartVars[v.key] ? v.color : '#9CA3AF',
+                    }}
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: chartVars[v.key] ? v.color : '#D1D5DB' }} />
+                    {v.label}
+                  </button>
                 ))}
-                <th className="py-[7px] px-2 text-center text-primary font-semibold text-[.72rem] uppercase">Prom</th>
-              </tr>
-            </thead>
-            <tbody className="text-gray-600">
-              <tr className="border-b border-gray-50">
-                <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Cal</td>
-                {dayLabels.map((d) => (
-                  <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.calories ?? '\u2014'}</td>
-                ))}
-                <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_calories ?? '\u2014'}</td>
-              </tr>
-              <tr className="border-b border-gray-50">
-                <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Prot</td>
-                {dayLabels.map((d) => (
-                  <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.protein_g ?? '\u2014'}</td>
-                ))}
-                <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_protein ? `${averages.avg_protein}g` : '\u2014'}</td>
-              </tr>
-              <tr className="border-b border-gray-50">
-                <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Pasos</td>
-                {dayLabels.map((d) => (
-                  <td key={d} className="py-[7px] px-2 text-center">{formatSteps(logsByDay[d]?.steps ?? null) ?? '\u2014'}</td>
-                ))}
-                <td className="py-[7px] px-2 text-center font-bold text-gray-800">{formatSteps(averages?.avg_steps ?? null) ?? '\u2014'}</td>
-              </tr>
-              <tr className="border-b border-gray-50">
-                <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Energia</td>
-                {dayLabels.map((d) => (
-                  <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.energy ?? '\u2014'}</td>
-                ))}
-                <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_energy ?? '\u2014'}</td>
-              </tr>
-            </tbody>
-          </table>
+              </div>
+
+              {/* SVG Line Chart */}
+              <div className="relative h-[200px] w-full">
+                <svg width="100%" height="100%" viewBox="0 0 700 200" preserveAspectRatio="none" className="overflow-visible">
+                  {/* Grid lines */}
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <line key={i} x1="50" y1={10 + i * 45} x2="680" y2={10 + i * 45} stroke="#F3F4F6" strokeWidth="1" />
+                  ))}
+                  {/* Day labels */}
+                  {dayLabels.map((d, i) => (
+                    <text key={d} x={50 + i * 90 + 45} y="198" textAnchor="middle" fill="#9CA3AF" fontSize="11" fontWeight="600">{d}</text>
+                  ))}
+
+                  {/* Plot each enabled variable */}
+                  {([
+                    { key: 'calories', color: '#0EA5E9', getValue: (log: typeof logs[0] | null) => log?.calories, scale: (v: number) => Math.min(v / 3000, 1) },
+                    { key: 'protein', color: '#8B5CF6', getValue: (log: typeof logs[0] | null) => log?.protein_g, scale: (v: number) => Math.min(v / 250, 1) },
+                    { key: 'energy', color: '#10B981', getValue: (log: typeof logs[0] | null) => log?.energy, scale: (v: number) => v / 5 },
+                    { key: 'hunger', color: '#F59E0B', getValue: (log: typeof logs[0] | null) => log?.hunger, scale: (v: number) => v / 5 },
+                    { key: 'fatigue', color: '#EF4444', getValue: (log: typeof logs[0] | null) => log?.fatigue_level, scale: (v: number) => v / 5 },
+                    { key: 'steps', color: '#06B6D4', getValue: (log: typeof logs[0] | null) => log?.steps, scale: (v: number) => Math.min(v / 20000, 1) },
+                    { key: 'sleep', color: '#6366F1', getValue: (log: typeof logs[0] | null) => log?.sleep_hours, scale: (v: number) => Math.min(v / 10, 1) },
+                  ] as const).filter((v) => chartVars[v.key]).map((variable) => {
+                    const points: { x: number; y: number; value: number }[] = []
+                    dayLabels.forEach((d, i) => {
+                      const log = logsByDay[d]
+                      const raw = variable.getValue(log)
+                      if (raw != null) {
+                        const normalized = variable.scale(raw)
+                        points.push({
+                          x: 50 + i * 90 + 45,
+                          y: 170 - normalized * 160,
+                          value: raw,
+                        })
+                      }
+                    })
+
+                    if (points.length < 1) return null
+
+                    const pathD = points.length === 1
+                      ? ''
+                      : points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+
+                    return (
+                      <g key={variable.key}>
+                        {points.length > 1 && (
+                          <path d={pathD} fill="none" stroke={variable.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
+                        )}
+                        {points.map((p, i) => (
+                          <g key={i}>
+                            <circle cx={p.x} cy={p.y} r="4" fill={variable.color} stroke="white" strokeWidth="2" />
+                            <text x={p.x} y={p.y - 10} textAnchor="middle" fill={variable.color} fontSize="10" fontWeight="600">
+                              {variable.key === 'calories' ? p.value : variable.key === 'steps' ? `${(p.value / 1000).toFixed(1)}k` : variable.key === 'sleep' ? `${p.value}h` : variable.key === 'protein' ? `${p.value}g` : p.value}
+                            </text>
+                          </g>
+                        ))}
+                      </g>
+                    )
+                  })}
+                </svg>
+              </div>
+
+              <div className="mt-2 text-[.72rem] text-gray-400 text-center">
+                Cada variable se normaliza a su escala (cal: 0-3000, 1-5 para energia/hambre/fatiga, pasos: 0-20k)
+              </div>
+            </div>
+          )}
         </div>
       </main>
 

@@ -18,13 +18,132 @@ const defaultVolume: Record<string, { mev: number; mav: number; mrv: number }> =
   Calves: { mev: 6, mav: 10, mrv: 16 },
 }
 
-const exitCriteria = [
-  { id: 'performance', title: 'Rendimiento en baja', sub: 'Fuerza baja por 3+ semanas consecutivas', defaultOn: true },
-  { id: 'energy', title: 'Energia muy baja', sub: 'Energia \u2264 2/5 por 2+ semanas', defaultOn: true },
-  { id: 'hunger', title: 'Hambre muy alto', sub: 'Hambre \u2265 4/5 por 3+ semanas', defaultOn: true },
-  { id: 'weight', title: 'Peso estancado', sub: 'Sin cambio de peso por 2+ semanas a pesar de la adherencia', defaultOn: false },
-  { id: 'goal', title: 'Objetivo alcanzado', sub: 'Peso o medida objetivo logrado', defaultOn: false },
-]
+// ── Goal-specific criteria defaults ──────────────────────────────────
+type CriterionItem = { id: string; label: string; detail: string; defaultOn: boolean }
+
+const entryCriteriaByGoal: Record<string, CriterionItem[]> = {
+  build: [
+    { id: 'weight_stable', label: 'Peso estable 2+ semanas', detail: 'Sin fluctuaciones >0.5kg entre semanas', defaultOn: true },
+    { id: 'deload_done', label: 'Deload completado', detail: 'Semana de descarga previa realizada', defaultOn: true },
+    { id: 'energy_ok', label: 'Energia ≥ 3/5', detail: 'Nivel de energia adecuado para volumen alto', defaultOn: true },
+    { id: 'hunger_low', label: 'Hambre controlado', detail: 'Hambre ≤ 3/5, sin ansiedad alimentaria', defaultOn: false },
+    { id: 'metrics_baselined', label: 'Medidas base tomadas', detail: 'Peso, cintura, fotos registradas como baseline', defaultOn: true },
+    { id: 'performance_baseline', label: 'Rendimiento base registrado', detail: 'Marcas actuales de fuerza documentadas', defaultOn: false },
+  ],
+  cut: [
+    { id: 'bulk_completed', label: 'Fase de volumen completada', detail: 'Se gano masa suficiente, momento de definir', defaultOn: true },
+    { id: 'bf_elevated', label: 'Grasa corporal elevada', detail: 'Body fat % por encima del rango deseado', defaultOn: true },
+    { id: 'energy_ok', label: 'Energia ≥ 3/5', detail: 'Energia suficiente para sostener deficit', defaultOn: true },
+    { id: 'metrics_baselined', label: 'Medidas base tomadas', detail: 'Peso, cintura, fotos registradas como baseline', defaultOn: true },
+    { id: 'adherence_ready', label: 'Adherencia preparada', detail: 'Plan de comidas y tracking listos', defaultOn: false },
+  ],
+  strength: [
+    { id: 'recovery_good', label: 'Recuperacion optima', detail: 'Sin lesiones, sin fatiga acumulada', defaultOn: true },
+    { id: 'muscle_base', label: 'Base muscular adecuada', detail: 'Suficiente masa para expresar fuerza', defaultOn: true },
+    { id: 'technique_solid', label: 'Tecnica consolidada', detail: 'Patrones de movimiento dominados', defaultOn: false },
+    { id: 'metrics_baselined', label: '1RM / PRs documentados', detail: 'Marcas maximas actuales registradas', defaultOn: true },
+  ],
+  maintain: [
+    { id: 'post_phase', label: 'Transicion post-fase', detail: 'Viene de cut o bulk, necesita estabilizar', defaultOn: true },
+    { id: 'metrics_stable', label: 'Metricas estables', detail: 'Peso y composicion corporal en rango deseado', defaultOn: true },
+    { id: 'recovery_needed', label: 'Necesita recuperacion', detail: 'Fatiga acumulada de fase anterior', defaultOn: false },
+  ],
+}
+
+const progressCriteriaByGoal: Record<string, { targets: CriterionItem[]; warnings: CriterionItem[] }> = {
+  build: {
+    targets: [
+      { id: 'weight_gain', label: 'Ganancia de peso', detail: '+0.2 a 0.5 kg/semana', defaultOn: true },
+      { id: 'strength_up', label: 'Fuerza subiendo', detail: 'Progresion en cargas o reps cada 1-2 semanas', defaultOn: true },
+      { id: 'energy_stable', label: 'Energia estable ≥ 3/5', detail: 'Sin caidas sostenidas de energia', defaultOn: true },
+      { id: 'waist_controlled', label: 'Cintura controlada', detail: 'Cintura no sube mas de 1cm/mes', defaultOn: true },
+      { id: 'sleep_quality', label: 'Sueno ≥ 7h', detail: 'Descanso adecuado para recuperacion', defaultOn: false },
+    ],
+    warnings: [
+      { id: 'weight_too_fast', label: 'Ganancia muy rapida', detail: '>0.7kg/semana = demasiada grasa', defaultOn: true },
+      { id: 'waist_spike', label: 'Cintura subiendo rapido', detail: '+2cm en un mes = exceso calorico', defaultOn: true },
+      { id: 'energy_drop', label: 'Energia baja sostenida', detail: '≤ 2/5 por 2+ semanas', defaultOn: true },
+      { id: 'digestion_issues', label: 'Problemas digestivos', detail: 'Hinchazón, malestar constante', defaultOn: false },
+    ],
+  },
+  cut: {
+    targets: [
+      { id: 'weight_loss', label: 'Perdida de peso', detail: '-0.3 a -0.7 kg/semana', defaultOn: true },
+      { id: 'strength_maintain', label: 'Fuerza mantenida', detail: 'Sin perdida >5% en levantamientos principales', defaultOn: true },
+      { id: 'waist_decreasing', label: 'Cintura bajando', detail: 'Reduccion progresiva de cintura', defaultOn: true },
+      { id: 'adherence_high', label: 'Adherencia alta', detail: '≥ 85% de adherencia a plan nutricional', defaultOn: true },
+      { id: 'energy_adequate', label: 'Energia tolerable ≥ 2/5', detail: 'Energia suficiente para entrenar', defaultOn: true },
+    ],
+    warnings: [
+      { id: 'strength_drop', label: 'Fuerza cayendo', detail: 'Perdida >10% en levantamientos principales', defaultOn: true },
+      { id: 'energy_crash', label: 'Energia muy baja', detail: '≤ 1/5 por 2+ semanas', defaultOn: true },
+      { id: 'hunger_extreme', label: 'Hambre extremo', detail: '≥ 4/5 por 3+ semanas', defaultOn: true },
+      { id: 'weight_stall', label: 'Peso estancado', detail: 'Sin cambio por 2+ semanas con adherencia', defaultOn: true },
+      { id: 'sleep_disrupted', label: 'Sueno disrumpido', detail: '<6h o despertares frecuentes', defaultOn: false },
+      { id: 'mood_low', label: 'Animo bajo sostenido', detail: 'Irritabilidad, desmotivacion constante', defaultOn: false },
+    ],
+  },
+  strength: {
+    targets: [
+      { id: 'load_progression', label: 'Progresion de carga', detail: 'Aumento progresivo en lifts principales', defaultOn: true },
+      { id: 'rpe_appropriate', label: 'RPE apropiado', detail: 'RPE 7-9 en series de trabajo', defaultOn: true },
+      { id: 'recovery_adequate', label: 'Recuperacion adecuada', detail: 'Sin dolor articular, sueno ok', defaultOn: true },
+      { id: 'technique_improving', label: 'Tecnica mejorando', detail: 'Movimientos mas limpios y eficientes', defaultOn: false },
+    ],
+    warnings: [
+      { id: 'joint_pain', label: 'Dolor articular', detail: 'Dolor persistente en articulaciones', defaultOn: true },
+      { id: 'rpe_too_high', label: 'RPE constantemente alto', detail: 'RPE 9.5+ en la mayoria de series', defaultOn: true },
+      { id: 'sleep_bad', label: 'Sueno malo', detail: '<6h o calidad muy baja', defaultOn: true },
+      { id: 'plateau_extended', label: 'Meseta prolongada', detail: 'Sin progresion en 3+ semanas', defaultOn: false },
+    ],
+  },
+  maintain: {
+    targets: [
+      { id: 'weight_stable', label: 'Peso estable', detail: '±0.5kg del peso objetivo', defaultOn: true },
+      { id: 'strength_maintained', label: 'Fuerza mantenida', detail: 'Sin perdida significativa', defaultOn: true },
+      { id: 'energy_good', label: 'Energia buena ≥ 3/5', detail: 'Sensacion general positiva', defaultOn: true },
+      { id: 'habits_consistent', label: 'Habitos consistentes', detail: 'Adherencia a entrenamiento y nutricion', defaultOn: false },
+    ],
+    warnings: [
+      { id: 'weight_drift', label: 'Peso desviandose', detail: '>1kg del objetivo por 2+ semanas', defaultOn: true },
+      { id: 'motivation_drop', label: 'Motivacion baja', detail: 'Falta de ganas de entrenar', defaultOn: true },
+      { id: 'boredom', label: 'Aburrimiento', detail: 'Rutina se siente monotona', defaultOn: false },
+    ],
+  },
+}
+
+const exitCriteriaByGoal: Record<string, CriterionItem[]> = {
+  build: [
+    { id: 'target_weight', label: 'Peso objetivo alcanzado', detail: 'Llegaste al peso meta de la fase', defaultOn: true },
+    { id: 'bf_too_high', label: 'Grasa corporal demasiado alta', detail: 'Body fat sube por encima del limite aceptable', defaultOn: true },
+    { id: 'waist_limit', label: 'Cintura en limite', detail: 'Cintura llego al maximo aceptable', defaultOn: true },
+    { id: 'mrv_reached', label: 'MRV alcanzado', detail: 'Volumen de entrenamiento al maximo recuperable', defaultOn: false },
+    { id: 'duration_complete', label: 'Duracion completada', detail: 'Se cumplieron las semanas planificadas', defaultOn: true },
+    { id: 'diet_fatigue', label: 'Fatiga alimentaria', detail: 'Dificultad sostenida para comer en superavit', defaultOn: false },
+  ],
+  cut: [
+    { id: 'target_weight', label: 'Peso objetivo alcanzado', detail: 'Llegaste al peso meta', defaultOn: true },
+    { id: 'target_bf', label: 'Body fat objetivo', detail: 'Composicion corporal deseada alcanzada', defaultOn: true },
+    { id: 'target_waist', label: 'Cintura objetivo', detail: 'Medida de cintura deseada alcanzada', defaultOn: true },
+    { id: 'performance_compromised', label: 'Rendimiento comprometido', detail: 'Fuerza baja >15% sostenido', defaultOn: true },
+    { id: 'metabolic_adaptation', label: 'Adaptacion metabolica', detail: 'Peso estancado a pesar de deficit maximo', defaultOn: true },
+    { id: 'duration_complete', label: 'Duracion completada', detail: 'Se cumplieron las semanas planificadas', defaultOn: true },
+    { id: 'mental_burnout', label: 'Agotamiento mental', detail: 'No se puede sostener el deficit emocionalmente', defaultOn: false },
+  ],
+  strength: [
+    { id: 'strength_goal', label: 'Meta de fuerza alcanzada', detail: 'PRs o 1RMs objetivo logrados', defaultOn: true },
+    { id: 'accumulated_fatigue', label: 'Fatiga acumulada', detail: 'Cuerpo necesita deload largo o transicion', defaultOn: true },
+    { id: 'competition_done', label: 'Competencia realizada', detail: 'Evento o fecha objetivo completado', defaultOn: false },
+    { id: 'injury_risk', label: 'Riesgo de lesion alto', detail: 'Molestias articulares persistentes', defaultOn: true },
+    { id: 'duration_complete', label: 'Duracion completada', detail: 'Se cumplieron las semanas planificadas', defaultOn: true },
+  ],
+  maintain: [
+    { id: 'ready_next_phase', label: 'Lista para siguiente fase', detail: 'Recuperada y motivada para nuevo objetivo', defaultOn: true },
+    { id: 'duration_complete', label: 'Duracion completada', detail: 'Se cumplieron las semanas planificadas', defaultOn: true },
+    { id: 'new_goal', label: 'Nuevo objetivo definido', detail: 'Decide empezar bulk, cut o fuerza', defaultOn: true },
+    { id: 'metrics_drifting', label: 'Metricas desviandose', detail: 'Ya no se esta manteniendo, mejor cambiar', defaultOn: false },
+  ],
+}
 
 const goalMap: Record<string, string> = {
   'Build / Volume': 'build',
@@ -75,15 +194,44 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
   const [fatPct, setFatPct] = useState(30)
   const [steps, setSteps] = useState(isEdit && existingPhase.step_goal ? String(existingPhase.step_goal) : '')
   const [sleep, setSleep] = useState(isEdit && existingPhase.sleep_goal ? String(existingPhase.sleep_goal) : '')
-  const [exitStates, setExitStates] = useState<Record<string, boolean>>(
-    Object.fromEntries(exitCriteria.map((c) => [c.id, c.defaultOn]))
+  // Criteria states — initialized from goal-specific defaults
+  const currentGoalKey = goalMap[goal] ?? 'build'
+  const [entryStates, setEntryStates] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries((entryCriteriaByGoal[currentGoalKey] ?? []).map((c) => [c.id, c.defaultOn]))
+  )
+  const [entryBodyComp, setEntryBodyComp] = useState({ weight_kg: '', body_fat_pct: '', waist_cm: '' })
+  const [entryNotes, setEntryNotes] = useState('')
+
+  const [progressTargetStates, setProgressTargetStates] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries((progressCriteriaByGoal[currentGoalKey]?.targets ?? []).map((c) => [c.id, c.defaultOn]))
+  )
+  const [progressWarningStates, setProgressWarningStates] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries((progressCriteriaByGoal[currentGoalKey]?.warnings ?? []).map((c) => [c.id, c.defaultOn]))
+  )
+  const [progressNotes, setProgressNotes] = useState('')
+
+  const [exitStates, setExitStates] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries((exitCriteriaByGoal[currentGoalKey] ?? []).map((c) => [c.id, c.defaultOn]))
   )
   const [exitNote, setExitNote] = useState(isEdit ? (existingPhase.custom_exit_notes ?? '') : '')
+  const [exitTargets, setExitTargets] = useState({ weight_kg: '', body_fat_pct: '', waist_cm: '' })
+
+  const [criteriaTab, setCriteriaTab] = useState<'entry' | 'progress' | 'exit'>('entry')
   const [saving, setSaving] = useState(false)
 
   if (!open) return null
 
-  const stepLabels = ['Datos', 'Volumen', 'Nutricion', 'Salida', 'Revisar']
+  const stepLabels = ['Datos', 'Volumen', 'Nutricion', 'Criterios', 'Revisar']
+
+  // When goal changes, re-initialize criteria with new goal defaults
+  function handleGoalChange(newGoal: string) {
+    setGoal(newGoal)
+    const gk = goalMap[newGoal] ?? 'build'
+    setEntryStates(Object.fromEntries((entryCriteriaByGoal[gk] ?? []).map((c) => [c.id, c.defaultOn])))
+    setProgressTargetStates(Object.fromEntries((progressCriteriaByGoal[gk]?.targets ?? []).map((c) => [c.id, c.defaultOn])))
+    setProgressWarningStates(Object.fromEntries((progressCriteriaByGoal[gk]?.warnings ?? []).map((c) => [c.id, c.defaultOn])))
+    setExitStates(Object.fromEntries((exitCriteriaByGoal[gk] ?? []).map((c) => [c.id, c.defaultOn])))
+  }
 
   function toggleFocus(muscle: string) {
     setFocusMuscles((prev) => prev.includes(muscle) ? prev.filter((m) => m !== muscle) : [...prev, muscle])
@@ -91,10 +239,6 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
 
   function updateVolume(muscle: string, field: 'mev' | 'mav' | 'mrv', value: string) {
     setVolume((prev) => ({ ...prev, [muscle]: { ...prev[muscle], [field]: parseInt(value) || 0 } }))
-  }
-
-  function toggleExit(id: string) {
-    setExitStates((prev) => ({ ...prev, [id]: !prev[id] }))
   }
 
   // Auto-calculate macros from calories using current percentages
@@ -159,7 +303,29 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
         fat_target: fat ? parseInt(fat) : null,
         step_goal: steps ? parseInt(steps) : null,
         sleep_goal: sleep ? parseFloat(sleep) : null,
-        exit_criteria: exitCriteria.filter((c) => exitStates[c.id]).map((c) => c.id),
+        entry_criteria: {
+          conditions: (entryCriteriaByGoal[goalMap[goal] ?? 'build'] ?? []).filter((c) => entryStates[c.id]).map((c) => ({ id: c.id, label: c.label, detail: c.detail })),
+          body_comp: {
+            weight_kg: entryBodyComp.weight_kg ? parseFloat(entryBodyComp.weight_kg) : null,
+            body_fat_pct: entryBodyComp.body_fat_pct ? parseFloat(entryBodyComp.body_fat_pct) : null,
+            waist_cm: entryBodyComp.waist_cm ? parseFloat(entryBodyComp.waist_cm) : null,
+          },
+          custom_notes: entryNotes || null,
+        },
+        progress_criteria: {
+          weekly_targets: (progressCriteriaByGoal[goalMap[goal] ?? 'build']?.targets ?? []).filter((c) => progressTargetStates[c.id]).map((c) => ({ id: c.id, label: c.label, detail: c.detail })),
+          warning_signs: (progressCriteriaByGoal[goalMap[goal] ?? 'build']?.warnings ?? []).filter((c) => progressWarningStates[c.id]).map((c) => ({ id: c.id, label: c.label, detail: c.detail })),
+          custom_notes: progressNotes || null,
+        },
+        exit_criteria: {
+          conditions: (exitCriteriaByGoal[goalMap[goal] ?? 'build'] ?? []).filter((c) => exitStates[c.id]).map((c) => ({ id: c.id, label: c.label, detail: c.detail })),
+          targets: {
+            weight_kg: exitTargets.weight_kg ? parseFloat(exitTargets.weight_kg) : null,
+            body_fat_pct: exitTargets.body_fat_pct ? parseFloat(exitTargets.body_fat_pct) : null,
+            waist_cm: exitTargets.waist_cm ? parseFloat(exitTargets.waist_cm) : null,
+          },
+          custom_notes: exitNote || null,
+        },
         custom_exit_notes: exitNote || null,
         volume_targets: volume,
       }
@@ -273,7 +439,7 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="text-[.77rem] text-gray-400 block mb-1">Objetivo</label>
-                  <select value={goal} onChange={(e) => setGoal(e.target.value)} className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] focus:border-primary focus:outline-none bg-card">
+                  <select value={goal} onChange={(e) => handleGoalChange(e.target.value)} className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] focus:border-primary focus:outline-none bg-card">
                     <option>Build / Volume</option>
                     <option>Cut / Define</option>
                     <option>Strength</option>
@@ -455,38 +621,177 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
             </div>
           )}
 
-          {/* STEP 4: Exit Criteria */}
+          {/* STEP 4: Criteria (Entry / Progress / Exit) */}
           {step === 4 && (
             <div className="fade-in">
-              <h3 className="text-[.95rem] font-bold mb-1">Criterios de Salida</h3>
-              <p className="text-[.77rem] text-gray-400 mb-4">Cuando deberia FitOS sugerir terminar esta fase?</p>
+              <h3 className="text-[.95rem] font-bold mb-1">Criterios de la Fase</h3>
+              <p className="text-[.77rem] text-gray-400 mb-3">La IA usa estos criterios para evaluar tu progreso y darte sugerencias inteligentes.</p>
 
-              <div className="flex flex-col gap-2">
-                {exitCriteria.map((c) => (
-                  <div key={c.id} className="flex items-center gap-3 p-[12px_14px] bg-gray-50 rounded-[var(--radius-sm)]">
-                    <button
-                      onClick={() => toggleExit(c.id)}
-                      className={`w-10 h-[22px] rounded-[11px] relative cursor-pointer border-none shrink-0 transition-colors duration-200 ${exitStates[c.id] ? 'bg-primary' : 'bg-gray-200'}`}
-                    >
-                      <div className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform duration-200 ${exitStates[c.id] ? 'translate-x-[18px]' : ''}`} />
-                    </button>
-                    <div className="flex-1">
-                      <div className="font-semibold text-[.85rem]">{c.title}</div>
-                      <div className="text-[.78rem] text-gray-500">{c.sub}</div>
-                    </div>
-                  </div>
+              {/* Sub-tabs */}
+              <div className="flex gap-1 mb-4 bg-gray-50 p-1 rounded-[var(--radius-sm)]">
+                {([
+                  { key: 'entry' as const, label: '🚪 Entrada', desc: '¿Cuándo arranca?' },
+                  { key: 'progress' as const, label: '📊 Progreso', desc: '¿Qué medir?' },
+                  { key: 'exit' as const, label: '🏁 Salida', desc: '¿Cuándo termina?' },
+                ]).map((t) => (
+                  <button
+                    key={t.key}
+                    onClick={() => setCriteriaTab(t.key)}
+                    className={`flex-1 py-2 px-2 rounded-[var(--radius-xs)] text-center cursor-pointer border-none transition-all duration-200 ${
+                      criteriaTab === t.key
+                        ? 'bg-card shadow-[var(--shadow)] text-primary font-semibold'
+                        : 'bg-transparent text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    <div className="text-[.82rem]">{t.label}</div>
+                  </button>
                 ))}
               </div>
 
-              <div className="mt-4">
-                <label className="text-[.77rem] text-gray-400 block mb-1">Nota de salida personalizada (opcional)</label>
-                <textarea
-                  value={exitNote}
-                  onChange={(e) => setExitNote(e.target.value)}
-                  placeholder="Ej: Terminar si la cintura baja de 66cm..."
-                  className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.87rem] text-gray-600 resize-y min-h-[60px] focus:border-primary focus:outline-none font-[inherit]"
-                />
-              </div>
+              {/* ── ENTRY CRITERIA ── */}
+              {criteriaTab === 'entry' && (
+                <div className="fade-in">
+                  <p className="text-[.78rem] text-gray-500 mb-3">¿Qué condiciones se tienen que cumplir para arrancar esta fase?</p>
+
+                  {/* Body comp baseline */}
+                  <div className="mb-4 p-3 bg-primary-light/50 rounded-[var(--radius-sm)]">
+                    <div className="text-[.8rem] font-semibold text-primary-dark mb-2">📐 Composicion corporal de entrada (baseline)</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[.7rem] text-gray-400 block mb-0.5">Peso (kg)</label>
+                        <input type="number" step="0.1" value={entryBodyComp.weight_kg} onChange={(e) => setEntryBodyComp(p => ({ ...p, weight_kg: e.target.value }))} placeholder="55" className="w-full py-1.5 px-2 text-[.82rem] border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-[.7rem] text-gray-400 block mb-0.5">Grasa (%)</label>
+                        <input type="number" step="0.5" value={entryBodyComp.body_fat_pct} onChange={(e) => setEntryBodyComp(p => ({ ...p, body_fat_pct: e.target.value }))} placeholder="22" className="w-full py-1.5 px-2 text-[.82rem] border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-[.7rem] text-gray-400 block mb-0.5">Cintura (cm)</label>
+                        <input type="number" step="0.5" value={entryBodyComp.waist_cm} onChange={(e) => setEntryBodyComp(p => ({ ...p, waist_cm: e.target.value }))} placeholder="68" className="w-full py-1.5 px-2 text-[.82rem] border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Entry conditions */}
+                  <div className="flex flex-col gap-1.5">
+                    {(entryCriteriaByGoal[currentGoalKey] ?? []).map((c) => (
+                      <div key={c.id} className="flex items-center gap-3 p-[10px_12px] bg-gray-50 rounded-[var(--radius-xs)]">
+                        <button
+                          onClick={() => setEntryStates(p => ({ ...p, [c.id]: !p[c.id] }))}
+                          className={`w-9 h-5 rounded-[10px] relative cursor-pointer border-none shrink-0 transition-colors duration-200 ${entryStates[c.id] ? 'bg-primary' : 'bg-gray-200'}`}
+                        >
+                          <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full transition-transform duration-200 ${entryStates[c.id] ? 'translate-x-4' : ''}`} />
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-[.82rem]">{c.label}</div>
+                          <div className="text-[.73rem] text-gray-500 truncate">{c.detail}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-3">
+                    <textarea value={entryNotes} onChange={(e) => setEntryNotes(e.target.value)} placeholder="Notas adicionales de entrada (opcional)..." rows={2} className="w-full py-2 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.82rem] text-gray-600 resize-y min-h-[40px] focus:border-primary focus:outline-none font-[inherit]" />
+                  </div>
+                </div>
+              )}
+
+              {/* ── PROGRESS CRITERIA ── */}
+              {criteriaTab === 'progress' && (
+                <div className="fade-in">
+                  <p className="text-[.78rem] text-gray-500 mb-3">¿Qué tiene que pasar cada semana para saber que vas bien? ¿Qué señales indican problemas?</p>
+
+                  {/* Progress targets */}
+                  <div className="mb-4">
+                    <div className="text-[.8rem] font-semibold text-success mb-2">✅ Señales de progreso (check-in semanal)</div>
+                    <div className="flex flex-col gap-1.5">
+                      {(progressCriteriaByGoal[currentGoalKey]?.targets ?? []).map((c) => (
+                        <div key={c.id} className="flex items-center gap-3 p-[10px_12px] bg-success-light/50 rounded-[var(--radius-xs)]">
+                          <button
+                            onClick={() => setProgressTargetStates(p => ({ ...p, [c.id]: !p[c.id] }))}
+                            className={`w-9 h-5 rounded-[10px] relative cursor-pointer border-none shrink-0 transition-colors duration-200 ${progressTargetStates[c.id] ? 'bg-success' : 'bg-gray-200'}`}
+                          >
+                            <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full transition-transform duration-200 ${progressTargetStates[c.id] ? 'translate-x-4' : ''}`} />
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold text-[.82rem]">{c.label}</div>
+                            <div className="text-[.73rem] text-gray-500">{c.detail}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Warning signs */}
+                  <div className="mb-3">
+                    <div className="text-[.8rem] font-semibold text-warning mb-2">⚠️ Señales de alerta (detectar problemas)</div>
+                    <div className="flex flex-col gap-1.5">
+                      {(progressCriteriaByGoal[currentGoalKey]?.warnings ?? []).map((c) => (
+                        <div key={c.id} className="flex items-center gap-3 p-[10px_12px] bg-warning-light/50 rounded-[var(--radius-xs)]">
+                          <button
+                            onClick={() => setProgressWarningStates(p => ({ ...p, [c.id]: !p[c.id] }))}
+                            className={`w-9 h-5 rounded-[10px] relative cursor-pointer border-none shrink-0 transition-colors duration-200 ${progressWarningStates[c.id] ? 'bg-warning' : 'bg-gray-200'}`}
+                          >
+                            <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full transition-transform duration-200 ${progressWarningStates[c.id] ? 'translate-x-4' : ''}`} />
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-semibold text-[.82rem]">{c.label}</div>
+                            <div className="text-[.73rem] text-gray-500">{c.detail}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <textarea value={progressNotes} onChange={(e) => setProgressNotes(e.target.value)} placeholder="Notas adicionales sobre progreso (opcional)..." rows={2} className="w-full py-2 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.82rem] text-gray-600 resize-y min-h-[40px] focus:border-primary focus:outline-none font-[inherit]" />
+                </div>
+              )}
+
+              {/* ── EXIT CRITERIA ── */}
+              {criteriaTab === 'exit' && (
+                <div className="fade-in">
+                  <p className="text-[.78rem] text-gray-500 mb-3">¿Qué señales indican que esta fase tiene que terminar?</p>
+
+                  {/* Exit targets */}
+                  <div className="mb-4 p-3 bg-danger-light/50 rounded-[var(--radius-sm)]">
+                    <div className="text-[.8rem] font-semibold text-danger mb-2">🎯 Metas de salida (numeros objetivo)</div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[.7rem] text-gray-400 block mb-0.5">Peso objetivo (kg)</label>
+                        <input type="number" step="0.1" value={exitTargets.weight_kg} onChange={(e) => setExitTargets(p => ({ ...p, weight_kg: e.target.value }))} placeholder="52" className="w-full py-1.5 px-2 text-[.82rem] border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-[.7rem] text-gray-400 block mb-0.5">Grasa obj. (%)</label>
+                        <input type="number" step="0.5" value={exitTargets.body_fat_pct} onChange={(e) => setExitTargets(p => ({ ...p, body_fat_pct: e.target.value }))} placeholder="18" className="w-full py-1.5 px-2 text-[.82rem] border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none" />
+                      </div>
+                      <div>
+                        <label className="text-[.7rem] text-gray-400 block mb-0.5">Cintura obj. (cm)</label>
+                        <input type="number" step="0.5" value={exitTargets.waist_cm} onChange={(e) => setExitTargets(p => ({ ...p, waist_cm: e.target.value }))} placeholder="64" className="w-full py-1.5 px-2 text-[.82rem] border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none" />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Exit conditions */}
+                  <div className="flex flex-col gap-1.5 mb-3">
+                    {(exitCriteriaByGoal[currentGoalKey] ?? []).map((c) => (
+                      <div key={c.id} className="flex items-center gap-3 p-[10px_12px] bg-gray-50 rounded-[var(--radius-xs)]">
+                        <button
+                          onClick={() => setExitStates(p => ({ ...p, [c.id]: !p[c.id] }))}
+                          className={`w-9 h-5 rounded-[10px] relative cursor-pointer border-none shrink-0 transition-colors duration-200 ${exitStates[c.id] ? 'bg-danger' : 'bg-gray-200'}`}
+                        >
+                          <div className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full transition-transform duration-200 ${exitStates[c.id] ? 'translate-x-4' : ''}`} />
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-[.82rem]">{c.label}</div>
+                          <div className="text-[.73rem] text-gray-500">{c.detail}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <textarea value={exitNote} onChange={(e) => setExitNote(e.target.value)} placeholder="Notas de salida personalizadas (ej: terminar si cintura baja de 64cm)..." rows={2} className="w-full py-2 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.82rem] text-gray-600 resize-y min-h-[40px] focus:border-primary focus:outline-none font-[inherit]" />
+                </div>
+              )}
             </div>
           )}
 
@@ -541,12 +846,39 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
               )}
 
               <div className="mb-4">
-                <h4 className="text-[.8rem] text-gray-500 uppercase tracking-wider mb-2">Criterios de Salida</h4>
-                <div className="flex flex-col gap-1">
-                  {exitCriteria.filter((c) => exitStates[c.id]).map((c) => (
-                    <div key={c.id} className="text-[.85rem] text-gray-600">{'\u2705'} {c.title}</div>
+                <h4 className="text-[.8rem] text-gray-500 uppercase tracking-wider mb-2">Criterios de Entrada</h4>
+                <div className="flex flex-col gap-0.5">
+                  {(entryCriteriaByGoal[currentGoalKey] ?? []).filter((c) => entryStates[c.id]).map((c) => (
+                    <div key={c.id} className="text-[.82rem] text-gray-600">🚪 {c.label}</div>
                   ))}
-                  {exitNote && <div className="text-[.85rem] text-gray-600 mt-1">{'\uD83D\uDCDD'} {exitNote}</div>}
+                  {(entryBodyComp.weight_kg || entryBodyComp.waist_cm) && (
+                    <div className="text-[.82rem] text-gray-500 mt-1">📐 Baseline: {entryBodyComp.weight_kg ? `${entryBodyComp.weight_kg}kg` : ''} {entryBodyComp.body_fat_pct ? `${entryBodyComp.body_fat_pct}%bf` : ''} {entryBodyComp.waist_cm ? `${entryBodyComp.waist_cm}cm cintura` : ''}</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <h4 className="text-[.8rem] text-gray-500 uppercase tracking-wider mb-2">Progreso Semanal</h4>
+                <div className="flex flex-col gap-0.5">
+                  {(progressCriteriaByGoal[currentGoalKey]?.targets ?? []).filter((c) => progressTargetStates[c.id]).map((c) => (
+                    <div key={c.id} className="text-[.82rem] text-gray-600">✅ {c.label}: {c.detail}</div>
+                  ))}
+                  {(progressCriteriaByGoal[currentGoalKey]?.warnings ?? []).filter((c) => progressWarningStates[c.id]).map((c) => (
+                    <div key={c.id} className="text-[.82rem] text-warning">⚠️ {c.label}: {c.detail}</div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <h4 className="text-[.8rem] text-gray-500 uppercase tracking-wider mb-2">Criterios de Salida</h4>
+                <div className="flex flex-col gap-0.5">
+                  {(exitCriteriaByGoal[currentGoalKey] ?? []).filter((c) => exitStates[c.id]).map((c) => (
+                    <div key={c.id} className="text-[.82rem] text-gray-600">🏁 {c.label}</div>
+                  ))}
+                  {(exitTargets.weight_kg || exitTargets.waist_cm) && (
+                    <div className="text-[.82rem] text-gray-500 mt-1">🎯 Metas: {exitTargets.weight_kg ? `${exitTargets.weight_kg}kg` : ''} {exitTargets.body_fat_pct ? `${exitTargets.body_fat_pct}%bf` : ''} {exitTargets.waist_cm ? `${exitTargets.waist_cm}cm cintura` : ''}</div>
+                  )}
+                  {exitNote && <div className="text-[.82rem] text-gray-600 mt-1">📝 {exitNote}</div>}
                 </div>
               </div>
             </div>

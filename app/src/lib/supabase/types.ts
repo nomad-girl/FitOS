@@ -184,6 +184,8 @@ export interface Database {
           fat_target: number | null
           step_goal: number | null
           sleep_goal: number | null
+          entry_criteria: Json
+          progress_criteria: Json
           exit_criteria: Json
           custom_exit_notes: string | null
           volume_targets: Json
@@ -213,6 +215,8 @@ export interface Database {
           fat_target?: number | null
           step_goal?: number | null
           sleep_goal?: number | null
+          entry_criteria?: Json
+          progress_criteria?: Json
           exit_criteria?: Json
           custom_exit_notes?: string | null
           volume_targets?: Json
@@ -240,6 +244,8 @@ export interface Database {
           fat_target?: number | null
           step_goal?: number | null
           sleep_goal?: number | null
+          entry_criteria?: Json
+          progress_criteria?: Json
           exit_criteria?: Json
           custom_exit_notes?: string | null
           volume_targets?: Json

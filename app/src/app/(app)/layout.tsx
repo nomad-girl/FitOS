@@ -5,7 +5,6 @@ import Link from 'next/link'
 import { Sidebar } from '@/components/layout/sidebar'
 import { BottomTabs } from '@/components/layout/bottom-tabs'
 import { QuickLogDrawer } from '@/components/shared/quick-log-drawer'
-import { ProfileModal } from '@/components/shared/profile-modal'
 
 export default function AppLayout({
   children,
@@ -13,12 +12,11 @@ export default function AppLayout({
   children: React.ReactNode
 }) {
   const [quickLogOpen, setQuickLogOpen] = useState(false)
-  const [profileOpen, setProfileOpen] = useState(false)
 
   return (
     <div className="flex min-h-screen">
       {/* Desktop Sidebar */}
-      <Sidebar onProfileClick={() => setProfileOpen(true)} />
+      <Sidebar />
 
       {/* Main Area */}
       <div className="flex-1 ml-[var(--sidebar-w)] flex flex-col min-h-screen max-md:ml-0">
@@ -34,12 +32,6 @@ export default function AppLayout({
             >
               {'\u2699\uFE0F'}
             </Link>
-            <button
-              onClick={() => setProfileOpen(true)}
-              className="w-9 h-9 rounded-full bg-primary-light text-primary flex items-center justify-center font-bold text-[.85rem] cursor-pointer border-none hover:bg-primary hover:text-white transition-all duration-200"
-            >
-              {'\uD83D\uDC64'}
-            </button>
           </div>
         </div>
         <div className="flex-1 flex">
@@ -61,8 +53,6 @@ export default function AppLayout({
       {/* Quick Log Drawer */}
       <QuickLogDrawer open={quickLogOpen} onClose={() => setQuickLogOpen(false)} />
 
-      {/* Profile Modal */}
-      <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
     </div>
   )
 }

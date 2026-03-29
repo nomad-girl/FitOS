@@ -44,7 +44,7 @@ async function fetchHevyWorkouts(page: number, pageSize: number = 5): Promise<He
   const params = new URLSearchParams({
     endpoint: 'workouts',
     page: page.toString(),
-    pageSize: pageSize.toString(),
+    page_size: pageSize.toString(),
   })
 
   const res = await fetch(`/api/hevy?${params.toString()}`)

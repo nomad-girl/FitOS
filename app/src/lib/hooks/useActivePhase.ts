@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { getCached, setCache } from '@/lib/cache'
 import type { Phase, RoutineWithExercises } from '@/lib/supabase/types'
 
@@ -14,7 +15,7 @@ export function useActivePhase() {
 
   const fetchActivePhase = useCallback(async () => {
     try {
-      // Check cache first
+      // Check cache first — show cached data instantly
       const cached = getCached<PhaseWithRoutines>('dashboard:activePhase')
       if (cached) {
         setPhase(cached)
@@ -24,10 +25,7 @@ export function useActivePhase() {
       }
 
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-
-      // In demo mode, use Nati's real user ID
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       // Get active phase
       const { data: phaseData, error: phaseError } = await supabase

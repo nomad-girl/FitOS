@@ -115,14 +115,14 @@ export async function fetchHevyWorkouts(
 ): Promise<HevyWorkoutsResponse> {
   return hevyFetch<HevyWorkoutsResponse>('workouts', {
     page: page.toString(),
-    pageSize: pageSize.toString(),
+    page_size: pageSize.toString(),
   })
 }
 
 export async function fetchHevyRoutines(): Promise<HevyRoutinesResponse> {
   return hevyFetch<HevyRoutinesResponse>('routines', {
     page: '1',
-    pageSize: '10',
+    page_size: '10',
   })
 }
 
@@ -131,6 +131,6 @@ export async function fetchHevyExerciseTemplates(
 ): Promise<HevyExerciseTemplatesResponse> {
   return hevyFetch<HevyExerciseTemplatesResponse>('exercise_templates', {
     page: page.toString(),
-    pageSize: '10',
+    page_size: '10',
   })
 }

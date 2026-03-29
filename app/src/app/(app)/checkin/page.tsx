@@ -2,26 +2,31 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useProfile } from '@/lib/hooks/useProfile'
 import { getCached, setCache, invalidateCache } from '@/lib/cache'
 import type { Phase, WeeklyCheckin, DailyLog } from '@/lib/supabase/types'
 
 type PerformanceTrend = 'down' | 'stable' | 'up'
 
-function getWeekStart(date: Date): string {
+function getWeekStart(date: Date, weekStartDay: string = 'saturday'): string {
+  const dayMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
+  const target = dayMap[weekStartDay] ?? 6
   const d = new Date(date)
-  const day = d.getDay()
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-  d.setDate(diff)
+  const current = d.getDay()
+  const diff = (current - target + 7) % 7
+  d.setDate(d.getDate() - diff)
   return d.toISOString().split('T')[0]
 }
 
-function getWeekStartWithOffset(offset: number): string {
+function getWeekStartWithOffset(offset: number, weekStartDay: string = 'saturday'): string {
   const now = new Date()
   now.setDate(now.getDate() + offset * 7)
-  return getWeekStart(now)
+  return getWeekStart(now, weekStartDay)
 }
 
 export default function CheckinPage() {
+  const { profile } = useProfile()
+  const weekStartDay = profile?.week_start_day ?? 'saturday'
   const [showAnalysis, setShowAnalysis] = useState(false)
   const [performanceTrend, setPerformanceTrend] = useState<PerformanceTrend>('stable')
   const [volumeDecision, setVolumeDecision] = useState('Mantener actual')
@@ -48,7 +53,7 @@ export default function CheckinPage() {
   const [saving, setSaving] = useState(false)
   const [savingDecision, setSavingDecision] = useState(false)
 
-  const weekStart = getWeekStartWithOffset(weekOffset)
+  const weekStart = getWeekStartWithOffset(weekOffset, weekStartDay)
 
   // Compute week number for a given weekStart relative to phase start
   function computeWeekNumber(phaseStartDate: string, targetWeekStart: string): number {

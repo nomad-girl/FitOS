@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
+import { getCached, setCache } from '@/lib/cache'
 import type { Profile } from '@/lib/supabase/types'
 
 export function useProfile() {
@@ -11,10 +13,17 @@ export function useProfile() {
 
   const fetchProfile = useCallback(async () => {
     try {
-      setLoading(true)
+      // Check cache first
+      const cached = getCached<Profile>('profile:data')
+      if (cached) {
+        setProfile(cached)
+        setLoading(false)
+      } else {
+        setLoading(true)
+      }
+
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const { data, error: fetchError } = await supabase
         .from('profiles')
@@ -28,6 +37,7 @@ export function useProfile() {
       }
 
       setProfile(data)
+      if (data) setCache('profile:data', data)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error fetching profile')
     } finally {

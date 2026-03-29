@@ -11,11 +11,7 @@ const navItems = [
   { href: '/learn', icon: '\u{1F4DA}', label: 'Aprender' },
 ]
 
-interface SidebarProps {
-  onProfileClick?: () => void
-}
-
-export function Sidebar({ onProfileClick }: SidebarProps) {
+export function Sidebar() {
   const pathname = usePathname()
 
   function isActive(href: string) {
@@ -70,7 +66,7 @@ export function Sidebar({ onProfileClick }: SidebarProps) {
       <div className="h-px bg-gray-100 mx-4" />
 
       {/* User */}
-      <div onClick={onProfileClick} className="p-4 border-t border-gray-100 flex items-center gap-3 cursor-pointer transition-colors duration-200 hover:bg-gray-50">
+      <Link href="/settings" className="p-4 border-t border-gray-100 flex items-center gap-3 cursor-pointer transition-colors duration-200 hover:bg-gray-50 no-underline">
         <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary to-accent text-white flex items-center justify-center font-bold text-[.85rem]">
           N
         </div>
@@ -78,7 +74,7 @@ export function Sidebar({ onProfileClick }: SidebarProps) {
           <div className="font-semibold text-[.88rem] text-gray-800">Natali</div>
           <div className="text-[.75rem] text-gray-400">Entrenando desde 2024</div>
         </div>
-      </div>
+      </Link>
     </aside>
   )
 }

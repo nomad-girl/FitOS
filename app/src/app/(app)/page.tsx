@@ -8,24 +8,31 @@ import { ScoreRing } from '@/components/ui/score-ring'
 import { RightPanel } from '@/components/layout/right-panel'
 import { useActivePhase } from '@/lib/hooks/useActivePhase'
 import { useWeeklyData } from '@/lib/hooks/useWeeklyData'
+import { useProfile } from '@/lib/hooks/useProfile'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { getCached, setCache } from '@/lib/cache'
 import type { Insight } from '@/lib/supabase/types'
 
-const dayNames = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
+const allDays = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
+const weekDayMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
 
-function getWeekStart(date: Date): string {
+function getWeekStartDate(date: Date, weekStartDay: string): string {
+  const target = weekDayMap[weekStartDay] ?? 6
   const d = new Date(date)
-  const day = d.getDay()
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
-  d.setDate(diff)
+  const current = d.getDay()
+  const diff = (current - target + 7) % 7
+  d.setDate(d.getDate() - diff)
   return d.toISOString().split('T')[0]
 }
 
 export default function DashboardPage() {
+  const { profile } = useProfile()
+  const weekStartDay = profile?.week_start_day ?? 'saturday'
   const { phase, loading: phaseLoading } = useActivePhase()
-  const { data: weeklyData, loading: weeklyLoading } = useWeeklyData(phase?.id)
+  const { data: weeklyData, loading: weeklyLoading } = useWeeklyData(phase?.id, weekStartDay)
   const [insights, setInsights] = useState<Insight[]>([])
+  const [recentWorkouts, setRecentWorkouts] = useState<{ id: string; session_date: string; notes: string | null; duration_minutes: number | null; total_volume_kg: number | null }[]>([])
   const [, setSeeding] = useState(false)
   const [, setSeedDone] = useState(false)
   const [showChart, setShowChart] = useState(false)
@@ -50,8 +57,7 @@ export default function DashboardPage() {
       }
 
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
       const { data } = await supabase
         .from('insights')
         .select('*')
@@ -73,17 +79,38 @@ export default function DashboardPage() {
     fetchInsights()
   }, [fetchInsights])
 
+  // Fetch recent Hevy workouts
+  const fetchRecentWorkouts = useCallback(async () => {
+    try {
+      const supabase = createClient()
+      const userId = await getUserId()
+      const { data } = await supabase
+        .from('executed_sessions')
+        .select('id, session_date, notes, duration_minutes, total_volume_kg')
+        .eq('user_id', userId)
+        .order('session_date', { ascending: false })
+        .limit(3)
+      if (data && data.length > 0) {
+        setRecentWorkouts(data)
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchRecentWorkouts()
+  }, [fetchRecentWorkouts])
+
   async function handleSeed() {
     setSeeding(true)
     try {
-      // Try to get the current user ID
-      const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
+      const userId = await getUserId()
 
       const res = await fetch('/api/seed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: user?.id ?? undefined }),
+        body: JSON.stringify({ userId }),
       })
       const result = await res.json()
       if (result.seeded || result.skipped) {
@@ -105,7 +132,7 @@ export default function DashboardPage() {
   const checkin = weeklyData?.checkin
 
   // Current week info
-  const weekStart = getWeekStart(new Date())
+  const weekStart = getWeekStartDate(new Date(), weekStartDay)
   let weekNumber = 1
   let totalWeeks = 6
   let phaseName = ''
@@ -128,7 +155,8 @@ export default function DashboardPage() {
   const phaseProgress = phase ? Math.round((weekNumber / totalWeeks) * 100) : 0
 
   // Build daily table
-  const dayLabels = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom']
+  const startIdx = weekDayMap[weekStartDay] ?? 6
+  const dayLabels = Array.from({ length: 7 }, (_, i) => allDays[(startIdx + i) % 7])
   const logsByDay: Record<string, typeof logs[0] | null> = {}
   if (weekStart) {
     for (let i = 0; i < 7; i++) {
@@ -544,92 +572,125 @@ export default function DashboardPage() {
 
       {/* Right Panel */}
       <RightPanel>
-        {/* Phase Card */}
-        {phase && (
-          <div className="border-l-4 border-l-success p-[18px_22px] bg-card rounded-r-[var(--radius)] shadow-[var(--shadow)] mb-5 cursor-pointer">
-            <div className="flex justify-between items-start">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <div className="font-bold text-[.95rem] text-gray-800">{phaseName}</div>
-                  <Badge variant="green" className="text-[.66rem]">En camino</Badge>
-                </div>
-                {phaseObjective && (
-                  <div className="mt-1.5 text-[.8rem] text-gray-500 italic leading-snug">
-                    {'\uD83C\uDFAF'} {phaseObjective}
+        {/* 1. Fase Activa — border-card */}
+        {phase ? (
+          <Link href="/plan" className="block mb-5 no-underline">
+            <div className="border border-gray-200 p-[18px_22px] bg-card rounded-[var(--radius)] cursor-pointer hover:border-gray-300 transition-colors">
+              <div className="flex justify-between items-start">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <div className="font-bold text-[.95rem] text-gray-800">{phaseName}</div>
+                    <Badge variant="green" className="text-[.66rem]">En camino</Badge>
                   </div>
-                )}
-              </div>
-              <span className="text-gray-300 text-[.9rem] ml-2">&rsaquo;</span>
-            </div>
-            <div className="mt-2.5">
-              <div className="flex justify-between text-[.76rem] text-gray-500 mb-1">
-                <span>Semana {weekNumber} de {totalWeeks}</span>
-                <span>{phaseProgress}%</span>
-              </div>
-              <ProgressBar value={phaseProgress} variant="blue" />
-            </div>
-          </div>
-        )}
-
-        {/* Weekly Score */}
-        {score != null && (
-          <div className="bg-gradient-to-br from-[#0f4d6e] to-[#175563] text-white rounded-[var(--radius)] p-[26px] mx-[-4px]">
-            <div className="text-center">
-              <div className="mx-auto mb-3">
-                <ScoreRing score={score} />
-              </div>
-              <div className="font-extrabold text-[1.02rem]">{score >= 85 ? 'Gran semana!' : score >= 70 ? 'Buena semana' : 'Semana regular'}</div>
-              <div className="text-[.8rem] opacity-70 mt-1">Puntaje Semanal</div>
-            </div>
-            {scoreBreakdown && (
-              <div className="mt-[18px] grid grid-cols-2 gap-2">
-                {[
-                  { label: 'Entrenamiento', key: 'training' },
-                  { label: 'Nutricion', key: 'nutrition' },
-                  { label: 'Pasos', key: 'steps' },
-                  { label: 'Sueno', key: 'sleep' },
-                ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="text-center bg-white/[.08] rounded-[10px] p-2.5"
-                  >
-                    <div className="text-[.7rem] opacity-60">{item.label}</div>
-                    <div className="font-extrabold text-[1.05rem]">{scoreBreakdown[item.key] != null ? `${scoreBreakdown[item.key]}%` : '--'}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* AI Tips from insights */}
-        {insights.length > 0 && (
-          <div className="border-l-4 border-l-success p-[18px_22px] bg-card rounded-r-[var(--radius)] shadow-[var(--shadow)] mt-6">
-            <div className="flex justify-between items-center mb-3.5">
-              <div className="font-bold text-base text-gray-800">{'\uD83D\uDCA1'} Tips</div>
-            </div>
-            <div className="flex flex-col gap-2.5">
-              {insights.slice(0, 4).map((insight) => (
-                <div
-                  key={insight.id}
-                  className={`p-[10px_12px] rounded-[var(--radius-xs)] text-[.84rem] ${
-                    insight.severity === 'warning' ? 'bg-warning-light' : 'bg-success-light'
-                  }`}
-                >
-                  <div className={`font-semibold mb-0.5 ${
-                    insight.severity === 'warning' ? 'text-[#92400E]' : 'text-[#065F46]'
-                  }`}>
-                    {insight.title}
-                  </div>
-                  {insight.suggestion && (
-                    <div className={`opacity-80 ${
-                      insight.severity === 'warning' ? 'text-[#92400E]' : 'text-[#065F46]'
-                    }`}>
-                      {insight.suggestion}
+                  {phaseObjective && (
+                    <div className="mt-1.5 text-[.8rem] text-gray-500 italic leading-snug">
+                      {'\uD83C\uDFAF'} {phaseObjective}
                     </div>
                   )}
                 </div>
-              ))}
+                <span className="text-gray-300 text-[.9rem] ml-2">&rsaquo;</span>
+              </div>
+              <div className="mt-2.5">
+                <div className="flex justify-between text-[.76rem] text-gray-500 mb-1">
+                  <span>Semana {weekNumber} de {totalWeeks}</span>
+                  <span>{phaseProgress}%</span>
+                </div>
+                <ProgressBar value={phaseProgress} variant="blue" />
+              </div>
+            </div>
+          </Link>
+        ) : (
+          <Link href="/plan" className="block mb-5 no-underline">
+            <div className="bg-gradient-to-br from-[#1d9be2] to-[#1aafcf] text-white rounded-[var(--radius)] p-[22px] text-center">
+              <div className="text-[1.5rem] mb-2">{'\uD83D\uDE80'}</div>
+              <div className="font-bold text-[.95rem] mb-1">Crea tu primera fase</div>
+              <div className="text-[.82rem] opacity-80">Define objetivo, duracion y rutinas para empezar a trackear</div>
+            </div>
+          </Link>
+        )}
+
+        {/* 2. Puntaje Semanal — gradient-card-dark (always visible) */}
+        <div className="bg-gradient-to-br from-[#0f4d6e] to-[#175563] text-white rounded-[var(--radius)] p-[26px] mx-[-4px] mb-5">
+          <div className="text-center">
+            <div className="mx-auto mb-3">
+              <ScoreRing score={score ?? 0} label={score == null ? '--' : undefined} />
+            </div>
+            <div className="font-extrabold text-[1.02rem]">
+              {score != null
+                ? score >= 85 ? '\u00A1Gran semana!' : score >= 70 ? 'Buena semana' : 'Semana regular'
+                : 'Pendiente'}
+            </div>
+            <div className="text-[.8rem] opacity-70 mt-1">Puntaje Semanal</div>
+          </div>
+          <div className="mt-[18px] grid grid-cols-2 gap-2">
+            {[
+              { label: 'Entrenamiento', key: 'training' },
+              { label: 'Nutricion', key: 'nutrition' },
+              { label: 'Pasos', key: 'steps' },
+              { label: 'Sueno', key: 'sleep' },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="text-center bg-white/[.08] rounded-[10px] p-2.5"
+              >
+                <div className="text-[.7rem] opacity-60">{item.label}</div>
+                <div className="font-extrabold text-[1.05rem]">
+                  {scoreBreakdown && scoreBreakdown[item.key] != null ? `${scoreBreakdown[item.key]}%` : '--'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 3. Tips para la Proxima Sesion — border-card with colored tip cards */}
+        {insights.length > 0 && (
+          <div className="border border-gray-200 bg-card rounded-[var(--radius)] p-[18px_22px]">
+            <div className="flex justify-between items-center mb-3.5">
+              <div className="font-bold text-[.95rem] text-gray-800">{'\uD83D\uDCA1'} Tips para la Proxima Sesion</div>
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {insights.map((insight) => {
+                // Color mapping: progression -> green, stall/warning -> yellow, info/focus -> blue
+                const isProgression = insight.insight_type === 'progression' && insight.severity === 'info'
+                const isWarning = insight.severity === 'warning'
+                // Default to blue (focus) for other info-type insights
+                const bgClass = isProgression
+                  ? 'bg-success-light'
+                  : isWarning
+                    ? 'bg-warning-light'
+                    : 'bg-primary-light'
+                const textClass = isProgression
+                  ? 'text-[#065F46]'
+                  : isWarning
+                    ? 'text-[#92400E]'
+                    : 'text-[var(--primary-dark)]'
+                const icon = isProgression
+                  ? '\u2B06'
+                  : isWarning
+                    ? '\u23F8'
+                    : '\uD83C\uDFAF'
+
+                return (
+                  <div
+                    key={insight.id}
+                    className={`p-[10px_12px] rounded-[var(--radius-xs)] text-[.84rem] ${bgClass}`}
+                  >
+                    <div className={`font-semibold mb-0.5 ${textClass}`}>
+                      {icon} {insight.title}
+                    </div>
+                    {insight.body && (
+                      <div className={`opacity-80 ${textClass}`}>
+                        {insight.body}
+                      </div>
+                    )}
+                    {insight.suggestion && (
+                      <div className={`mt-1 text-[.78rem] font-medium opacity-90 ${textClass}`}>
+                        {insight.suggestion}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         )}

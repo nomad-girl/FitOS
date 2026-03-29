@@ -1,5 +1,6 @@
 interface ScoreRingProps {
   score: number // 0-100
+  label?: string // optional display override (e.g. "--")
   size?: number
   strokeWidth?: number
   color?: string
@@ -10,6 +11,7 @@ interface ScoreRingProps {
 
 export function ScoreRing({
   score,
+  label,
   size = 100,
   strokeWidth = 8,
   color = '#06B6D4',
@@ -55,7 +57,7 @@ export function ScoreRing({
         className="z-10 font-extrabold"
         style={{ fontSize: size * 0.32, color: textColor }}
       >
-        {score}
+        {label ?? score}
       </span>
     </div>
   )

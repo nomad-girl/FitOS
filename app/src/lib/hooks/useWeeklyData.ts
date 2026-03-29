@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { getCached, setCache } from '@/lib/cache'
 import type { DailyLog, WeeklyCheckin } from '@/lib/supabase/types'
 
@@ -22,15 +23,17 @@ interface WeeklyData {
   checkin: WeeklyCheckin | null
 }
 
-function getWeekStart(date: Date): string {
+function getWeekStart(date: Date, weekStartDay: string = 'saturday'): string {
+  const dayMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
+  const target = dayMap[weekStartDay] ?? 6
   const d = new Date(date)
-  const day = d.getDay()
-  const diff = d.getDate() - day + (day === 0 ? -6 : 1) // Monday start
-  d.setDate(diff)
+  const current = d.getDay()
+  const diff = (current - target + 7) % 7
+  d.setDate(d.getDate() - diff)
   return d.toISOString().split('T')[0]
 }
 
-export function useWeeklyData(phaseId?: string | null) {
+export function useWeeklyData(phaseId?: string | null, weekStartDay: string = 'saturday') {
   const [data, setData] = useState<WeeklyData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -48,16 +51,15 @@ export function useWeeklyData(phaseId?: string | null) {
       }
 
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
-      const weekStart = getWeekStart(new Date())
+      const weekStart = getWeekStart(new Date(), weekStartDay)
       const weekEnd = new Date(weekStart)
       weekEnd.setDate(weekEnd.getDate() + 6)
       const weekEndStr = weekEnd.toISOString().split('T')[0]
 
-      // Fetch daily logs for this week
-      const { data: logs, error: logsError } = await supabase
+      // Fetch logs AND checkin in PARALLEL (not sequential)
+      const logsPromise = supabase
         .from('daily_logs')
         .select('*')
         .eq('user_id', userId)
@@ -65,12 +67,26 @@ export function useWeeklyData(phaseId?: string | null) {
         .lte('log_date', weekEndStr)
         .order('log_date', { ascending: true })
 
-      if (logsError) {
-        setError(logsError.message)
+      const checkinPromise = phaseId
+        ? supabase
+            .from('weekly_checkins')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('phase_id', phaseId)
+            .gte('checkin_date', weekStart)
+            .lte('checkin_date', weekEndStr)
+            .single()
+        : Promise.resolve({ data: null })
+
+      const [logsResult, checkinResult] = await Promise.all([logsPromise, checkinPromise])
+
+      if (logsResult.error) {
+        setError(logsResult.error.message)
         return
       }
 
-      const validLogs = logs ?? []
+      const validLogs = logsResult.data ?? []
+      const checkin: WeeklyCheckin | null = checkinResult.data as WeeklyCheckin | null
 
       // Compute averages
       const avg = (values: (number | null)[]) => {
@@ -96,22 +112,6 @@ export function useWeeklyData(phaseId?: string | null) {
         log_count: validLogs.length,
       }
 
-      // Fetch check-in if we have a phase
-      let checkin: WeeklyCheckin | null = null
-      if (phaseId) {
-        // Determine week number (weeks since phase start — or just use week 1 as fallback)
-        const { data: checkinData } = await supabase
-          .from('weekly_checkins')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('phase_id', phaseId)
-          .gte('checkin_date', weekStart)
-          .lte('checkin_date', weekEndStr)
-          .single()
-
-        checkin = checkinData
-      }
-
       const weeklyData: WeeklyData = { logs: validLogs, averages, checkin }
       setData(weeklyData)
       setCache(cacheKey, weeklyData)
@@ -120,7 +120,7 @@ export function useWeeklyData(phaseId?: string | null) {
     } finally {
       setLoading(false)
     }
-  }, [phaseId])
+  }, [phaseId, weekStartDay])
 
   useEffect(() => {
     fetchWeeklyData()

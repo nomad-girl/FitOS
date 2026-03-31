@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { RightPanel } from '@/components/layout/right-panel'
 import { createClient } from '@/lib/supabase/client'
 import { getCached, setCache, invalidateCache } from '@/lib/cache'
+import { dateToLocal } from '@/lib/date-utils'
 import type { Phase, WeeklyCheckin, WeeklyDecision, DailyLog } from '@/lib/supabase/types'
 
 type BadgeVariant = 'blue' | 'green' | 'yellow' | 'gray' | 'red'
@@ -155,7 +156,7 @@ function getLast30Days(): string[] {
   for (let i = 0; i < 30; i++) {
     const d = new Date(today)
     d.setDate(d.getDate() - i)
-    days.push(d.toISOString().split('T')[0])
+    days.push(dateToLocal(d))
   }
   return days
 }

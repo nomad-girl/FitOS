@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { todayLocal } from '@/lib/date-utils'
 import type { DailyLog, FatigueEntry } from '@/lib/supabase/types'
 
 type DailyLogWithFatigue = DailyLog & { fatigue_entries: FatigueEntry[] }
 
 export function useDailyLog(date?: string) {
-  const today = date ?? new Date().toISOString().split('T')[0]
+  const today = date ?? todayLocal()
   const [log, setLog] = useState<DailyLogWithFatigue | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

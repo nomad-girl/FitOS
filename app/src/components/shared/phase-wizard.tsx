@@ -1,20 +1,31 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { todayLocal } from '@/lib/date-utils'
 import type { Phase } from '@/lib/supabase/types'
 
-const muscleGroups = ['Glutes', 'Back', 'Quads', 'Hamstrings', 'Chest', 'Shoulders', 'Arms', 'Core', 'Calves']
+const muscleGroups = [
+  'Glutes', 'Hamstrings', 'Quadriceps', 'Shoulders', 'Triceps',
+  'Abdominals', 'Lats', 'Biceps', 'Upper Back', 'Abductors',
+  'Chest', 'Adductors', 'Forearms', 'Lower Back', 'Calves',
+]
 
 const defaultVolume: Record<string, { mev: number; mav: number; mrv: number }> = {
   Glutes: { mev: 8, mav: 16, mrv: 22 },
-  Back: { mev: 8, mav: 14, mrv: 20 },
-  Quads: { mev: 6, mav: 12, mrv: 18 },
   Hamstrings: { mev: 4, mav: 10, mrv: 16 },
-  Chest: { mev: 6, mav: 12, mrv: 18 },
+  Quadriceps: { mev: 6, mav: 12, mrv: 18 },
   Shoulders: { mev: 6, mav: 12, mrv: 20 },
-  Arms: { mev: 4, mav: 10, mrv: 16 },
-  Core: { mev: 0, mav: 6, mrv: 12 },
+  Triceps: { mev: 4, mav: 8, mrv: 14 },
+  Abdominals: { mev: 0, mav: 6, mrv: 12 },
+  Lats: { mev: 6, mav: 12, mrv: 18 },
+  Biceps: { mev: 4, mav: 8, mrv: 14 },
+  'Upper Back': { mev: 6, mav: 12, mrv: 18 },
+  Abductors: { mev: 0, mav: 6, mrv: 12 },
+  Chest: { mev: 6, mav: 12, mrv: 18 },
+  Adductors: { mev: 0, mav: 6, mrv: 10 },
+  Forearms: { mev: 2, mav: 6, mrv: 10 },
+  'Lower Back': { mev: 0, mav: 4, mrv: 8 },
   Calves: { mev: 6, mav: 10, mrv: 16 },
 }
 
@@ -174,50 +185,95 @@ interface PhaseWizardProps {
   macrocycleId?: string | null
 }
 
+const PHASE_DRAFT_KEY = 'fitos:phase-wizard-draft'
+
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(PHASE_DRAFT_KEY)
+    if (!raw) return null
+    const draft = JSON.parse(raw)
+    // Expire drafts older than 24h
+    if (draft._savedAt && Date.now() - draft._savedAt > 24 * 60 * 60 * 1000) {
+      localStorage.removeItem(PHASE_DRAFT_KEY)
+      return null
+    }
+    // Merge volume with current defaults so new muscle groups always appear
+    if (draft.volume) {
+      const merged: Record<string, { mev: number; mav: number; mrv: number }> = { ...defaultVolume }
+      for (const key of muscleGroups) {
+        if (draft.volume[key]) merged[key] = draft.volume[key]
+      }
+      draft.volume = merged
+    }
+    return draft
+  } catch { return null }
+}
+
 export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, macrocycleId }: PhaseWizardProps) {
   const isEdit = mode === 'edit' && existingPhase
-  const [step, setStep] = useState(1)
-  const [name, setName] = useState(isEdit ? existingPhase.name : '')
-  const [objective, setObjective] = useState(isEdit ? (existingPhase.objective ?? '') : '')
-  const [goal, setGoal] = useState(isEdit ? (goalMapReverse[existingPhase.goal] ?? 'Build / Volume') : 'Build / Volume')
-  const [duration, setDuration] = useState(isEdit ? String(existingPhase.duration_weeks) : '6')
-  const [frequency, setFrequency] = useState(isEdit ? String(existingPhase.frequency) : '3')
-  const [split, setSplit] = useState('Full Body')
-  const [focusMuscles, setFocusMuscles] = useState<string[]>(isEdit ? (existingPhase.focus_muscles ?? []) : [])
-  const [volume, setVolume] = useState(defaultVolume)
-  const [cal, setCal] = useState(isEdit && existingPhase.calorie_target ? String(existingPhase.calorie_target) : '')
-  const [prot, setProt] = useState(isEdit && existingPhase.protein_target ? String(existingPhase.protein_target) : '')
-  const [carbs, setCarbs] = useState(isEdit && existingPhase.carbs_target ? String(existingPhase.carbs_target) : '')
-  const [fat, setFat] = useState(isEdit && existingPhase.fat_target ? String(existingPhase.fat_target) : '')
-  const [protPct, setProtPct] = useState(30)
-  const [carbsPct, setCarbsPct] = useState(40)
-  const [fatPct, setFatPct] = useState(30)
-  const [steps, setSteps] = useState(isEdit && existingPhase.step_goal ? String(existingPhase.step_goal) : '')
-  const [sleep, setSleep] = useState(isEdit && existingPhase.sleep_goal ? String(existingPhase.sleep_goal) : '')
+  const draft = mode === 'create' ? loadDraft() : null
+  const [step, setStep] = useState(draft?.step ?? 1)
+  const [name, setName] = useState(isEdit ? existingPhase.name : (draft?.name ?? ''))
+  const [objective, setObjective] = useState(isEdit ? (existingPhase.objective ?? '') : (draft?.objective ?? ''))
+  const [goal, setGoal] = useState(isEdit ? (goalMapReverse[existingPhase.goal] ?? 'Build / Volume') : (draft?.goal ?? 'Build / Volume'))
+  const [duration, setDuration] = useState(isEdit ? String(existingPhase.duration_weeks) : (draft?.duration ?? '6'))
+  const [frequency, setFrequency] = useState(isEdit ? String(existingPhase.frequency) : (draft?.frequency ?? '3'))
+  const [split, setSplit] = useState(draft?.split ?? 'Full Body')
+  const [focusMuscles, setFocusMuscles] = useState<string[]>(isEdit ? (existingPhase.focus_muscles ?? []) : (draft?.focusMuscles ?? []))
+  const [volume, setVolume] = useState<Record<string, { mev: number; mav: number; mrv: number }>>(draft?.volume ?? defaultVolume)
+  const [cal, setCal] = useState(isEdit && existingPhase.calorie_target ? String(existingPhase.calorie_target) : (draft?.cal ?? ''))
+  const [prot, setProt] = useState(isEdit && existingPhase.protein_target ? String(existingPhase.protein_target) : (draft?.prot ?? ''))
+  const [carbs, setCarbs] = useState(isEdit && existingPhase.carbs_target ? String(existingPhase.carbs_target) : (draft?.carbs ?? ''))
+  const [fat, setFat] = useState(isEdit && existingPhase.fat_target ? String(existingPhase.fat_target) : (draft?.fat ?? ''))
+  const [protPct, setProtPct] = useState(draft?.protPct ?? 30)
+  const [carbsPct, setCarbsPct] = useState(draft?.carbsPct ?? 40)
+  const [fatPct, setFatPct] = useState(draft?.fatPct ?? 30)
+  const [steps, setSteps] = useState(isEdit && existingPhase.step_goal ? String(existingPhase.step_goal) : (draft?.steps ?? ''))
+  const [sleep, setSleep] = useState(isEdit && existingPhase.sleep_goal ? String(existingPhase.sleep_goal) : (draft?.sleep ?? ''))
   // Criteria states — initialized from goal-specific defaults
   const currentGoalKey = goalMap[goal] ?? 'build'
   const [entryStates, setEntryStates] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries((entryCriteriaByGoal[currentGoalKey] ?? []).map((c) => [c.id, c.defaultOn]))
+    draft?.entryStates ?? Object.fromEntries((entryCriteriaByGoal[currentGoalKey] ?? []).map((c) => [c.id, c.defaultOn]))
   )
-  const [entryBodyComp, setEntryBodyComp] = useState({ weight_kg: '', body_fat_pct: '', waist_cm: '' })
-  const [entryNotes, setEntryNotes] = useState('')
+  const [entryBodyComp, setEntryBodyComp] = useState<{ weight_kg: string; body_fat_pct: string; waist_cm: string }>(draft?.entryBodyComp ?? { weight_kg: '', body_fat_pct: '', waist_cm: '' })
+  const [entryNotes, setEntryNotes] = useState(draft?.entryNotes ?? '')
 
   const [progressTargetStates, setProgressTargetStates] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries((progressCriteriaByGoal[currentGoalKey]?.targets ?? []).map((c) => [c.id, c.defaultOn]))
+    draft?.progressTargetStates ?? Object.fromEntries((progressCriteriaByGoal[currentGoalKey]?.targets ?? []).map((c) => [c.id, c.defaultOn]))
   )
   const [progressWarningStates, setProgressWarningStates] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries((progressCriteriaByGoal[currentGoalKey]?.warnings ?? []).map((c) => [c.id, c.defaultOn]))
+    draft?.progressWarningStates ?? Object.fromEntries((progressCriteriaByGoal[currentGoalKey]?.warnings ?? []).map((c) => [c.id, c.defaultOn]))
   )
-  const [progressNotes, setProgressNotes] = useState('')
+  const [progressNotes, setProgressNotes] = useState(draft?.progressNotes ?? '')
 
   const [exitStates, setExitStates] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries((exitCriteriaByGoal[currentGoalKey] ?? []).map((c) => [c.id, c.defaultOn]))
+    draft?.exitStates ?? Object.fromEntries((exitCriteriaByGoal[currentGoalKey] ?? []).map((c) => [c.id, c.defaultOn]))
   )
-  const [exitNote, setExitNote] = useState(isEdit ? (existingPhase.custom_exit_notes ?? '') : '')
-  const [exitTargets, setExitTargets] = useState({ weight_kg: '', body_fat_pct: '', waist_cm: '' })
+  const [exitNote, setExitNote] = useState(isEdit ? (existingPhase.custom_exit_notes ?? '') : (draft?.exitNote ?? ''))
+  const [exitTargets, setExitTargets] = useState<{ weight_kg: string; body_fat_pct: string; waist_cm: string }>(draft?.exitTargets ?? { weight_kg: '', body_fat_pct: '', waist_cm: '' })
 
   const [criteriaTab, setCriteriaTab] = useState<'entry' | 'progress' | 'exit'>('entry')
   const [saving, setSaving] = useState(false)
+
+  // Auto-save draft to localStorage (only in create mode)
+  useEffect(() => {
+    if (!open || isEdit) return
+    const timer = setTimeout(() => {
+      localStorage.setItem(PHASE_DRAFT_KEY, JSON.stringify({
+        step, name, objective, goal, duration, frequency, split, focusMuscles, volume,
+        cal, prot, carbs, fat, protPct, carbsPct, fatPct, steps, sleep,
+        entryStates, entryBodyComp, entryNotes,
+        progressTargetStates, progressWarningStates, progressNotes,
+        exitStates, exitNote, exitTargets,
+        _savedAt: Date.now(),
+      }))
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [open, isEdit, step, name, objective, goal, duration, frequency, split, focusMuscles, volume,
+    cal, prot, carbs, fat, protPct, carbsPct, fatPct, steps, sleep,
+    entryStates, entryBodyComp, entryNotes,
+    progressTargetStates, progressWarningStates, progressNotes,
+    exitStates, exitNote, exitTargets])
 
   if (!open) return null
 
@@ -354,7 +410,7 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
           .insert({
             ...phaseData,
             status: 'active',
-            start_date: new Date().toISOString().split('T')[0],
+            start_date: todayLocal(),
           })
 
         if (error) {
@@ -364,6 +420,7 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
         }
       }
 
+      localStorage.removeItem(PHASE_DRAFT_KEY)
       onClose()
       setStep(1)
     } catch (err) {
@@ -379,21 +436,29 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
     else handleSave()
   }
 
+  function handleClose() {
+    const hasData = name || objective || cal || prot
+    if (hasData && !isEdit) {
+      if (!window.confirm('Tenes un borrador guardado. Podes volver cuando quieras y va a seguir ahi. Cerrar?')) return
+    }
+    onClose()
+  }
+
   function back() {
     if (step > 1) setStep(step - 1)
-    else onClose()
+    else handleClose()
   }
 
   return (
     <div
       className="fixed inset-0 bg-black/40 z-[500] flex justify-center items-center"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) handleClose() }}
     >
       <div className="bg-card rounded-[var(--radius)] w-[580px] max-w-[95vw] max-h-[85vh] p-[24px_28px] shadow-[var(--shadow-lg)] fade-scale flex flex-col" onMouseDown={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex justify-between items-center mb-1.5 shrink-0">
           <h2 className="text-[1.1rem] font-extrabold">{mode === 'edit' ? 'Editar Fase' : 'Nueva Fase'}</h2>
-          <button onClick={onClose} className="text-[1.3rem] text-gray-400 p-1 cursor-pointer bg-transparent border-none hover:text-gray-600">&times;</button>
+          <button onClick={handleClose} className="text-[1.3rem] text-gray-400 p-1 cursor-pointer bg-transparent border-none hover:text-gray-600">&times;</button>
         </div>
 
         {/* Step Indicators — clickeable */}

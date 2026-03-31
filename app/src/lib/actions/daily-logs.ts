@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { dateToLocal, parseLocalDate } from '@/lib/date-utils'
 import type { DailyLogInsert } from '@/lib/supabase/types'
 
 export async function getDailyLog(userId: string, date: string) {
@@ -23,10 +24,10 @@ export async function getDailyLogsForWeek(userId: string, weekStart: string) {
   const supabase = await createClient()
 
   // Calculate week end (weekStart + 6 days)
-  const start = new Date(weekStart)
+  const start = parseLocalDate(weekStart)
   const end = new Date(start)
   end.setDate(end.getDate() + 6)
-  const weekEnd = end.toISOString().split('T')[0]
+  const weekEnd = dateToLocal(end)
 
   const { data, error } = await supabase
     .from('daily_logs')

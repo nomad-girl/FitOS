@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Badge } from '@/components/ui/badge'
 import { RightPanel } from '@/components/layout/right-panel'
+import { dateToLocal } from '@/lib/date-utils'
 
 // ─── Types for processed data ──────────────────────────────────────
 
@@ -124,7 +125,7 @@ export default function ProgressPage() {
       // ─── 1. Fetch recent sessions (last 2 weeks) ────────────
       const twoWeeksAgo = new Date()
       twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14)
-      const twoWeeksStr = twoWeeksAgo.toISOString().split('T')[0]
+      const twoWeeksStr = dateToLocal(twoWeeksAgo)
 
       const { data: recentSessions } = await supabase
         .from('executed_sessions')
@@ -152,11 +153,11 @@ export default function ProgressPage() {
       // ─── 2. Fetch ALL sessions for exercise progression (last 8 weeks) ─
       const eightWeeksAgo = new Date()
       eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 56)
-      const eightWeeksStr = eightWeeksAgo.toISOString().split('T')[0]
+      const eightWeeksStr = dateToLocal(eightWeeksAgo)
 
       const fourWeeksAgo = new Date()
       fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28)
-      const fourWeeksStr = fourWeeksAgo.toISOString().split('T')[0]
+      const fourWeeksStr = dateToLocal(fourWeeksAgo)
 
       const { data: allSessions } = await supabase
         .from('executed_sessions')
@@ -184,7 +185,7 @@ export default function ProgressPage() {
       // ─── 4. Fetch weekly set volume (from executed_sessions) ─
       const sixWeeksAgo = new Date()
       sixWeeksAgo.setDate(sixWeeksAgo.getDate() - 42)
-      const sixWeeksStr = sixWeeksAgo.toISOString().split('T')[0]
+      const sixWeeksStr = dateToLocal(sixWeeksAgo)
 
       const { data: volumeSessions } = await supabase
         .from('executed_sessions')
@@ -223,7 +224,7 @@ export default function ProgressPage() {
           const diff = d.getDate() - day + (day === 0 ? -6 : 1)
           const weekStart = new Date(d)
           weekStart.setDate(diff)
-          const key = weekStart.toISOString().split('T')[0]
+          const key = dateToLocal(weekStart)
           const setCount = (s.executed_exercises as any[])?.reduce(
             (acc: number, ex: any) => acc + ((ex.executed_sets as any[])?.length ?? 0), 0
           ) ?? 0
@@ -531,7 +532,7 @@ export default function ProgressPage() {
           const diff = d.getDate() - day + (day === 0 ? -6 : 1)
           const ws = new Date(d)
           ws.setDate(diff)
-          sessionWeeks.add(ws.toISOString().split('T')[0])
+          sessionWeeks.add(dateToLocal(ws))
         }
         // Count backwards from current week
         let streak = 0
@@ -542,7 +543,7 @@ export default function ProgressPage() {
         currentWeekStart.setDate(currentDiff)
 
         let checkDate = new Date(currentWeekStart)
-        while (sessionWeeks.has(checkDate.toISOString().split('T')[0])) {
+        while (sessionWeeks.has(dateToLocal(checkDate))) {
           streak++
           checkDate.setDate(checkDate.getDate() - 7)
         }

@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { dateToLocal, parseLocalDate } from '@/lib/date-utils'
 import type { WeeklyCheckinInsert, WeeklyDecisionInsert } from '@/lib/supabase/types'
 
 export async function getCheckin(userId: string, phaseId: string, weekNumber: number) {
@@ -76,10 +77,10 @@ export async function saveDecisions(
 export async function computeWeeklyAverages(userId: string, weekStart: string) {
   const supabase = await createClient()
 
-  const start = new Date(weekStart)
+  const start = parseLocalDate(weekStart)
   const end = new Date(start)
   end.setDate(end.getDate() + 6)
-  const weekEnd = end.toISOString().split('T')[0]
+  const weekEnd = dateToLocal(end)
 
   const { data: logs, error } = await supabase
     .from('daily_logs')

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { getCached, setCache, invalidateCache } from '@/lib/cache'
+import { dateToLocal, parseLocalDate } from '@/lib/date-utils'
 import type { Phase, WeeklyCheckin, DailyLog } from '@/lib/supabase/types'
 
 type PerformanceTrend = 'down' | 'stable' | 'up'
@@ -15,7 +16,7 @@ function getWeekStart(date: Date, weekStartDay: string = 'saturday'): string {
   const current = d.getDay()
   const diff = (current - target + 7) % 7
   d.setDate(d.getDate() - diff)
-  return d.toISOString().split('T')[0]
+  return dateToLocal(d)
 }
 
 function getWeekStartWithOffset(offset: number, weekStartDay: string = 'saturday'): string {
@@ -146,9 +147,9 @@ export default function CheckinPage() {
       }
 
       // Fetch weekly logs
-      const weekEnd = new Date(weekStart)
+      const weekEnd = parseLocalDate(weekStart)
       weekEnd.setDate(weekEnd.getDate() + 6)
-      const weekEndStr = weekEnd.toISOString().split('T')[0]
+      const weekEndStr = dateToLocal(weekEnd)
 
       const { data: logs } = await supabase
         .from('daily_logs')

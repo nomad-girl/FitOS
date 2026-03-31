@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getUserId } from '@/lib/supabase/auth-cache'
 import { getCached, setCache } from '@/lib/cache'
+import { dateToLocal, parseLocalDate } from '@/lib/date-utils'
 import type { DailyLog, WeeklyCheckin } from '@/lib/supabase/types'
 
 interface WeeklyAverages {
@@ -30,7 +31,7 @@ function getWeekStart(date: Date, weekStartDay: string = 'saturday'): string {
   const current = d.getDay()
   const diff = (current - target + 7) % 7
   d.setDate(d.getDate() - diff)
-  return d.toISOString().split('T')[0]
+  return dateToLocal(d)
 }
 
 export function useWeeklyData(phaseId?: string | null, weekStartDay: string = 'saturday') {
@@ -54,9 +55,9 @@ export function useWeeklyData(phaseId?: string | null, weekStartDay: string = 's
       const userId = await getUserId()
 
       const weekStart = getWeekStart(new Date(), weekStartDay)
-      const weekEnd = new Date(weekStart)
+      const weekEnd = parseLocalDate(weekStart)
       weekEnd.setDate(weekEnd.getDate() + 6)
-      const weekEndStr = weekEnd.toISOString().split('T')[0]
+      const weekEndStr = dateToLocal(weekEnd)
 
       // Fetch logs AND checkin in PARALLEL (not sequential)
       const logsPromise = supabase

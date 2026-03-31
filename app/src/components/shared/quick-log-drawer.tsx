@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { todayLocal, dateToLocal } from '@/lib/date-utils'
 
 const fatigueLabels = [
   { value: 1, label: '1 \uD83D\uDCAA' },
@@ -20,15 +21,13 @@ interface QuickLogDrawerProps {
   onClose: () => void
 }
 
-function formatDateISO(date: Date): string {
-  return date.toISOString().split('T')[0]
-}
-
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + 'T12:00:00')
   d.setDate(d.getDate() + days)
-  return formatDateISO(d)
+  return dateToLocal(d)
 }
+
+const LOG_DRAFT_KEY = 'fitos:quick-log-draft'
 
 export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
   const [calories, setCalories] = useState('')
@@ -43,8 +42,9 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
   const [deleting, setDeleting] = useState(false)
   const [existingLogId, setExistingLogId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
 
-  const today = useMemo(() => formatDateISO(new Date()), [])
+  const today = useMemo(() => todayLocal(), [])
   const [selectedDate, setSelectedDate] = useState(today)
 
   const isToday = selectedDate === today
@@ -127,9 +127,58 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
   useEffect(() => {
     if (!open) {
       resetFields()
-      setSelectedDate(formatDateISO(new Date()))
+      setSelectedDate(todayLocal())
+      setHasUnsavedChanges(false)
     }
   }, [open])
+
+  // Auto-save draft to localStorage when form has data and no existing log
+  useEffect(() => {
+    if (!open || existingLogId || loading) return
+    const hasData = calories || protein || steps || sleepHours
+    if (!hasData) return
+    const timer = setTimeout(() => {
+      localStorage.setItem(LOG_DRAFT_KEY, JSON.stringify({
+        selectedDate, calories, protein, steps, sleepHours, energy, hunger, fatigue, fatigueZones,
+        _savedAt: Date.now(),
+      }))
+    }, 500)
+    return () => clearTimeout(timer)
+  }, [open, existingLogId, loading, selectedDate, calories, protein, steps, sleepHours, energy, hunger, fatigue, fatigueZones])
+
+  // Load draft on open if no existing log for today
+  useEffect(() => {
+    if (!open || loading || existingLogId) return
+    try {
+      const raw = localStorage.getItem(LOG_DRAFT_KEY)
+      if (!raw) return
+      const draft = JSON.parse(raw)
+      // Only restore if same date and less than 24h old
+      if (draft.selectedDate !== selectedDate) return
+      if (draft._savedAt && Date.now() - draft._savedAt > 24 * 60 * 60 * 1000) {
+        localStorage.removeItem(LOG_DRAFT_KEY)
+        return
+      }
+      if (draft.calories) setCalories(draft.calories)
+      if (draft.protein) setProtein(draft.protein)
+      if (draft.steps) setSteps(draft.steps)
+      if (draft.sleepHours) setSleepHours(draft.sleepHours)
+      if (draft.energy) setEnergy(draft.energy)
+      if (draft.hunger) setHunger(draft.hunger)
+      if (draft.fatigue) setFatigue(draft.fatigue)
+      if (draft.fatigueZones) setFatigueZones(draft.fatigueZones)
+    } catch { /* ignore */ }
+  }, [open, loading, existingLogId, selectedDate])
+
+  // Track unsaved changes
+  const markChanged = useCallback(() => setHasUnsavedChanges(true), [])
+
+  function handleClose() {
+    if (hasUnsavedChanges) {
+      if (!window.confirm('Tenes cambios sin guardar. Cerrar de todas formas?')) return
+    }
+    onClose()
+  }
 
   function toggleZone(zone: string) {
     setFatigueZones((prev) =>
@@ -168,6 +217,9 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
         alert('Error guardando el registro: ' + error.message)
         return
       }
+
+      localStorage.removeItem(LOG_DRAFT_KEY)
+      setHasUnsavedChanges(false)
 
       // Save fatigue entries if fatigue >= 3
       if (savedLog && fatigue >= 3 && fatigueZones.length > 0) {
@@ -245,7 +297,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
   return (
     <div
       className="fixed inset-0 bg-black/35 z-[400] flex justify-end items-end"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) handleClose() }}
     >
       <div className="bg-card rounded-t-[var(--radius)] w-[420px] max-w-[100vw] max-h-[90vh] overflow-y-auto p-7 shadow-[0_-8px_30px_rgba(0,0,0,.12)] slide-up fixed bottom-0 right-7 max-md:right-0 max-md:w-full" onMouseDown={(e) => e.stopPropagation()}>
         {/* Header */}
@@ -253,7 +305,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
           <div>
             <div className="font-extrabold text-[1.05rem] text-gray-800">Registro Diario Rapido</div>
           </div>
-          <button onClick={onClose} className="text-[1.3rem] text-gray-400 p-1 cursor-pointer bg-transparent border-none hover:text-gray-600">&times;</button>
+          <button onClick={handleClose} className="text-[1.3rem] text-gray-400 p-1 cursor-pointer bg-transparent border-none hover:text-gray-600">&times;</button>
         </div>
 
         {/* Date navigation */}
@@ -327,7 +379,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
                   type="number"
                   placeholder="1650"
                   value={calories}
-                  onChange={(e) => setCalories(e.target.value)}
+                  onChange={(e) => { setCalories(e.target.value); markChanged() }}
                   className="w-full py-2.5 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] focus:border-primary focus:outline-none"
                 />
               </div>
@@ -337,7 +389,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
                   type="number"
                   placeholder="120"
                   value={protein}
-                  onChange={(e) => setProtein(e.target.value)}
+                  onChange={(e) => { setProtein(e.target.value); markChanged() }}
                   className="w-full py-2.5 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] focus:border-primary focus:outline-none"
                 />
               </div>
@@ -347,7 +399,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
                   type="number"
                   placeholder="10000"
                   value={steps}
-                  onChange={(e) => setSteps(e.target.value)}
+                  onChange={(e) => { setSteps(e.target.value); markChanged() }}
                   className="w-full py-2.5 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] focus:border-primary focus:outline-none"
                 />
               </div>
@@ -358,7 +410,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
                   step="0.1"
                   placeholder="7.5"
                   value={sleepHours}
-                  onChange={(e) => setSleepHours(e.target.value)}
+                  onChange={(e) => { setSleepHours(e.target.value); markChanged() }}
                   className="w-full py-2.5 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] focus:border-primary focus:outline-none"
                 />
               </div>
@@ -372,7 +424,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
                   {[1, 2, 3, 4, 5].map((n) => (
                     <button
                       key={n}
-                      onClick={() => setEnergy(n)}
+                      onClick={() => { setEnergy(n); markChanged() }}
                       className={`w-9 h-9 rounded-[var(--radius-sm)] border-[1.5px] font-semibold text-[.82rem] flex items-center justify-center cursor-pointer transition-all duration-200 ${
                         energy === n
                           ? 'bg-primary text-white border-primary'
@@ -390,7 +442,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
                   {[1, 2, 3, 4, 5].map((n) => (
                     <button
                       key={n}
-                      onClick={() => setHunger(n)}
+                      onClick={() => { setHunger(n); markChanged() }}
                       className={`w-9 h-9 rounded-[var(--radius-sm)] border-[1.5px] font-semibold text-[.82rem] flex items-center justify-center cursor-pointer transition-all duration-200 ${
                         hunger === n
                           ? 'bg-primary text-white border-primary'
@@ -411,7 +463,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
                 {fatigueLabels.map((f) => (
                   <button
                     key={f.value}
-                    onClick={() => { setFatigue(f.value); if (f.value < 3) setFatigueZones([]) }}
+                    onClick={() => { setFatigue(f.value); if (f.value < 3) setFatigueZones([]); markChanged() }}
                     className={`h-9 px-2.5 rounded-[var(--radius-sm)] border-[1.5px] font-semibold text-[.78rem] flex items-center justify-center cursor-pointer transition-all duration-200 ${
                       fatigue === f.value
                         ? 'bg-primary text-white border-primary'

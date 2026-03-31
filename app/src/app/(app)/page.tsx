@@ -12,6 +12,7 @@ import { useProfile } from '@/lib/hooks/useProfile'
 import { createClient } from '@/lib/supabase/client'
 import { getUserId } from '@/lib/supabase/auth-cache'
 import { getCached, setCache } from '@/lib/cache'
+import { dateToLocal, parseLocalDate } from '@/lib/date-utils'
 import type { Insight } from '@/lib/supabase/types'
 
 const allDays = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
@@ -23,7 +24,7 @@ function getWeekStartDate(date: Date, weekStartDay: string): string {
   const current = d.getDay()
   const diff = (current - target + 7) % 7
   d.setDate(d.getDate() - diff)
-  return d.toISOString().split('T')[0]
+  return dateToLocal(d)
 }
 
 export default function DashboardPage() {
@@ -160,9 +161,9 @@ export default function DashboardPage() {
   const logsByDay: Record<string, typeof logs[0] | null> = {}
   if (weekStart) {
     for (let i = 0; i < 7; i++) {
-      const d = new Date(weekStart)
+      const d = parseLocalDate(weekStart)
       d.setDate(d.getDate() + i)
-      const key = d.toISOString().split('T')[0]
+      const key = dateToLocal(d)
       logsByDay[dayLabels[i]] = logs.find((l) => l.log_date === key) ?? null
     }
   }

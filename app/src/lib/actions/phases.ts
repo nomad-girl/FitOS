@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { todayLocal } from '@/lib/date-utils'
 import type { PhaseInsert, PhaseUpdate } from '@/lib/supabase/types'
 
 export async function getActivePhase(userId: string) {
@@ -73,7 +74,7 @@ export async function completePhase(id: string, outcomeNotes?: string) {
     .from('phases')
     .update({
       status: 'completed',
-      end_date: new Date().toISOString().split('T')[0],
+      end_date: todayLocal(),
       outcome_notes: outcomeNotes ?? null,
       updated_at: new Date().toISOString(),
     })
@@ -91,7 +92,7 @@ export async function abandonPhase(id: string) {
     .from('phases')
     .update({
       status: 'abandoned',
-      end_date: new Date().toISOString().split('T')[0],
+      end_date: todayLocal(),
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)

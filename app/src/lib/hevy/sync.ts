@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/client'
+import { dateToLocal } from '@/lib/date-utils'
 
 // ─── Hevy API types ────────────────────────────────────────────────
 interface HevySet {
@@ -155,7 +156,7 @@ export async function syncHevyWorkouts(
         }
 
         // Insert executed_session
-        const sessionDate = startTime.toISOString().split('T')[0]
+        const sessionDate = dateToLocal(startTime)
         const { data: session, error: sessionError } = await supabase
           .from('executed_sessions')
           .insert({

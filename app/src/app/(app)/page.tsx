@@ -153,7 +153,7 @@ export default function DashboardPage() {
   }
 
   const logCount = logs.length
-  const phaseProgress = phase ? Math.round((weekNumber / totalWeeks) * 100) : 0
+  const phaseProgress = phase ? Math.round(((weekNumber - 1) / totalWeeks) * 100) : 0
 
   // Build daily table
   const startIdx = weekDayMap[weekStartDay] ?? 6

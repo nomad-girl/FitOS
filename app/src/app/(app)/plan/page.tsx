@@ -381,7 +381,7 @@ export default function PlanPage() {
             <div className="flex flex-col gap-3">
               {phases.map((phase, idx) => {
                 const wk = getWeekNumber(phase)
-                const progress = Math.round((wk / phase.duration_weeks) * 100)
+                const progress = Math.round(((wk - 1) / phase.duration_weeks) * 100)
                 const isActive = phase.status === 'active'
 
                 return (
@@ -504,7 +504,7 @@ export default function PlanPage() {
             {(activePhase || selectedPhase) ? (() => {
               const phase = selectedPhase ?? activePhase!
               const wk = getWeekNumber(phase)
-              const progress = Math.round((wk / phase.duration_weeks) * 100)
+              const progress = Math.round(((wk - 1) / phase.duration_weeks) * 100)
 
               return (
                 <>

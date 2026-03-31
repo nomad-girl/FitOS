@@ -581,7 +581,7 @@ export default function DashboardPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <div className="font-bold text-[.95rem] text-gray-800">{phaseName}</div>
-                    <Badge variant="green" className="text-[.66rem]">En camino</Badge>
+                    <span className="text-[.66rem] font-semibold text-primary bg-primary-light px-2 py-0.5 rounded-full">Activa</span>
                   </div>
                   {phaseObjective && (
                     <div className="mt-1.5 text-[.8rem] text-gray-500 italic leading-snug">

@@ -37,6 +37,8 @@ export default function DashboardPage() {
   const [, setSeeding] = useState(false)
   const [, setSeedDone] = useState(false)
   const [showChart, setShowChart] = useState(false)
+  const [coachData, setCoachData] = useState<{ summary: string; highlights: { type: string; title: string; body: string }[]; adherence: { percentage: number; detail: string }; patterns: string[]; suggestions: string[] } | null>(null)
+  const [coachLoading, setCoachLoading] = useState(false)
   const [chartVars, setChartVars] = useState<Record<string, boolean>>({
     calories: true,
     protein: true,
@@ -102,6 +104,26 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchRecentWorkouts()
   }, [fetchRecentWorkouts])
+
+  async function fetchCoachAnalysis() {
+    setCoachLoading(true)
+    try {
+      const userId = await getUserId()
+      const res = await fetch('/api/ai/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, analysisType: 'weekly' }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setCoachData(data)
+      }
+    } catch (err) {
+      console.error('Coach error:', err)
+    } finally {
+      setCoachLoading(false)
+    }
+  }
 
   async function handleSeed() {
     setSeeding(true)
@@ -567,6 +589,90 @@ export default function DashboardPage() {
                 Cada variable se normaliza a su escala (cal: 0-3000, 1-5 para energia/hambre/fatiga, pasos: 0-20k)
               </div>
             </div>
+          )}
+        </div>
+
+        {/* Coach AI Section */}
+        <div className="mt-[18px] fade-in" style={{ animationDelay: '.25s' }}>
+          {coachData ? (
+            <div className="bg-gradient-to-br from-[#f8fafc] to-[#f0f9ff] border border-primary/20 rounded-[var(--radius)] p-[24px_26px]">
+              <div className="flex justify-between items-center mb-4">
+                <div className="font-bold text-[1.05rem] text-gray-800 flex items-center gap-2">
+                  <span className="text-[1.2rem]">{'\uD83E\uDDE0'}</span> Tu Coach
+                </div>
+                <button
+                  onClick={fetchCoachAnalysis}
+                  disabled={coachLoading}
+                  className="text-[.75rem] text-primary font-semibold cursor-pointer bg-transparent border-none hover:underline disabled:opacity-50"
+                >
+                  {coachLoading ? 'Analizando...' : 'Actualizar'}
+                </button>
+              </div>
+
+              <p className="text-[.88rem] text-gray-700 leading-relaxed mb-4">{coachData.summary}</p>
+
+              {coachData.adherence && (
+                <div className="flex items-center gap-3 mb-4 p-3 bg-white rounded-[var(--radius-sm)] border border-gray-100">
+                  <div className={`text-[1.5rem] font-extrabold ${coachData.adherence.percentage >= 80 ? 'text-success' : coachData.adherence.percentage >= 60 ? 'text-warning' : 'text-danger'}`}>
+                    {coachData.adherence.percentage}%
+                  </div>
+                  <div>
+                    <div className="text-[.78rem] font-semibold text-gray-600">Adherencia</div>
+                    <div className="text-[.75rem] text-gray-400">{coachData.adherence.detail}</div>
+                  </div>
+                </div>
+              )}
+
+              {coachData.highlights && coachData.highlights.length > 0 && (
+                <div className="flex flex-col gap-2 mb-4">
+                  {coachData.highlights.map((h, i) => (
+                    <div key={i} className={`flex items-start gap-2 p-2.5 rounded-[var(--radius-sm)] text-[.84rem] ${
+                      h.type === 'pr' ? 'bg-success-light text-success' :
+                      h.type === 'warning' ? 'bg-warning-light text-warning' :
+                      h.type === 'milestone' ? 'bg-primary-light text-primary-dark' :
+                      'bg-gray-50 text-gray-600'
+                    }`}>
+                      <span className="text-[.95rem] mt-px">{h.type === 'pr' ? '\uD83C\uDFC6' : h.type === 'warning' ? '\u26A0\uFE0F' : h.type === 'milestone' ? '\uD83C\uDF1F' : '\uD83D\uDCA1'}</span>
+                      <div>
+                        <div className="font-semibold text-[.82rem]">{h.title}</div>
+                        <div className="text-[.78rem] opacity-80">{h.body}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {coachData.suggestions && coachData.suggestions.length > 0 && (
+                <div className="border-t border-gray-200 pt-3 mt-3">
+                  <div className="text-[.78rem] font-semibold text-gray-500 mb-2">Sugerencias</div>
+                  <ul className="list-none flex flex-col gap-1.5">
+                    {coachData.suggestions.map((s, i) => (
+                      <li key={i} className="text-[.82rem] text-gray-600 flex items-start gap-1.5">
+                        <span className="text-primary mt-px">{'\u2192'}</span> {s}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ) : (
+            <button
+              onClick={fetchCoachAnalysis}
+              disabled={coachLoading}
+              className="w-full py-4 px-6 rounded-[var(--radius)] bg-gradient-to-br from-[#0f4d6e] to-[#175563] text-white font-bold text-[.95rem] cursor-pointer border-none transition-all duration-200 hover:shadow-lg hover:-translate-y-px disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {coachLoading ? (
+                <>
+                  <span className="inline-block w-4 h-4 border-2 border-white/30 border-t-white rounded-full" style={{ animation: 'spin 1s linear infinite' }} />
+                  Analizando tus datos...
+                </>
+              ) : (
+                <>
+                  <span className="text-[1.1rem]">{'\uD83E\uDDE0'}</span>
+                  Pedir Analisis del Coach
+                </>
+              )}
+            </button>
           )}
         </div>
       </main>

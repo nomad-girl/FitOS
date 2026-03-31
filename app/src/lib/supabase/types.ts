@@ -740,6 +740,64 @@ export interface Database {
           duration_seconds?: number | null
         }
       }
+      coach_memories: {
+        Row: {
+          id: string
+          user_id: string
+          memory_type: string
+          content: string
+          context: Json
+          relevance_score: number
+          created_at: string
+          expires_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          memory_type: string
+          content: string
+          context?: Json
+          relevance_score?: number
+          created_at?: string
+          expires_at?: string | null
+        }
+        Update: {
+          memory_type?: string
+          content?: string
+          context?: Json
+          relevance_score?: number
+          expires_at?: string | null
+        }
+      }
+      coach_analyses: {
+        Row: {
+          id: string
+          user_id: string
+          analysis_type: string
+          prompt_context: Json
+          response: string
+          memories_used: string[]
+          new_memories: string[]
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          analysis_type: string
+          prompt_context?: Json
+          response: string
+          memories_used?: string[]
+          new_memories?: string[]
+          created_at?: string
+        }
+        Update: {
+          analysis_type?: string
+          prompt_context?: Json
+          response?: string
+          memories_used?: string[]
+          new_memories?: string[]
+        }
+      }
     }
     Views: Record<string, never>
     Functions: Record<string, never>
@@ -795,6 +853,11 @@ export type ExerciseMapping = Tables['exercise_mappings']['Row']
 export type ExecutedSession = Tables['executed_sessions']['Row']
 export type ExecutedExercise = Tables['executed_exercises']['Row']
 export type ExecutedSet = Tables['executed_sets']['Row']
+
+export type CoachMemory = Tables['coach_memories']['Row']
+export type CoachMemoryInsert = Tables['coach_memories']['Insert']
+export type CoachAnalysis = Tables['coach_analyses']['Row']
+export type CoachAnalysisInsert = Tables['coach_analyses']['Insert']
 
 // ─── Composite types (with joins) ───────────────────────────────────
 export type RoutineExerciseWithSets = RoutineExercise & {

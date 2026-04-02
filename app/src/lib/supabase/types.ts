@@ -74,25 +74,36 @@ export interface Database {
         Row: {
           id: string
           name: string
-          category: string | null
-          equipment: string | null
+          exercise_type: string | null
+          direction: string | null
+          laterality: string | null
+          movement_pattern_id: string | null
+          notes: string | null
           is_custom: boolean
           user_id: string | null
           created_at: string
+          updated_at: string
         }
         Insert: {
           id?: string
           name: string
-          category?: string | null
-          equipment?: string | null
+          exercise_type?: string | null
+          direction?: string | null
+          laterality?: string | null
+          movement_pattern_id?: string | null
+          notes?: string | null
           is_custom?: boolean
           user_id?: string | null
           created_at?: string
+          updated_at?: string
         }
         Update: {
           name?: string
-          category?: string | null
-          equipment?: string | null
+          exercise_type?: string | null
+          direction?: string | null
+          laterality?: string | null
+          movement_pattern_id?: string | null
+          notes?: string | null
           is_custom?: boolean
           user_id?: string | null
         }
@@ -769,6 +780,35 @@ export interface Database {
           expires_at?: string | null
         }
       }
+      milestones: {
+        Row: {
+          id: string
+          user_id: string
+          title: string
+          description: string | null
+          milestone_date: string
+          category: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          title: string
+          description?: string | null
+          milestone_date?: string
+          category?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          title?: string
+          description?: string | null
+          milestone_date?: string
+          category?: string
+          updated_at?: string
+        }
+      }
       coach_analyses: {
         Row: {
           id: string
@@ -853,6 +893,9 @@ export type ExerciseMapping = Tables['exercise_mappings']['Row']
 export type ExecutedSession = Tables['executed_sessions']['Row']
 export type ExecutedExercise = Tables['executed_exercises']['Row']
 export type ExecutedSet = Tables['executed_sets']['Row']
+
+export type Milestone = Tables['milestones']['Row']
+export type MilestoneInsert = Tables['milestones']['Insert']
 
 export type CoachMemory = Tables['coach_memories']['Row']
 export type CoachMemoryInsert = Tables['coach_memories']['Insert']

@@ -15,7 +15,32 @@ interface PRRecord {
   date: string
 }
 
+interface WeeklyScoreData {
+  score: number
+  breakdown: {
+    adherencia: number
+    calorias: number
+    proteina: number
+    pasos: number
+    sueno: number
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────
+
+const weekDayMap: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6,
+}
+
+function getWeekStartDate(date: Date, weekStartDay: string): string {
+  const target = weekDayMap[weekStartDay] ?? 6
+  const d = new Date(date)
+  const current = d.getDay()
+  const diff = (current - target + 7) % 7
+  d.setDate(d.getDate() - diff)
+  return dateToLocal(d)
+}
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00')
@@ -23,15 +48,95 @@ function formatDate(dateStr: string): string {
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
 }
 
-const MILESTONE_CATEGORIES = [
-  { value: 'strength', label: 'Fuerza', icon: '\uD83D\uDCAA' },
-  { value: 'body', label: 'Cuerpo', icon: '\uD83D\uDCCF' },
-  { value: 'skill', label: 'Habilidad', icon: '\u2B50' },
-  { value: 'general', label: 'General', icon: '\uD83C\uDFC6' },
-]
+// Calculate weekly score from daily logs vs profile targets
+function computeWeeklyScore(
+  logs: { calories: number | null; protein_g: number | null; steps: number | null; sleep_hours: number | null }[],
+  targets: { calorie_target: number | null; protein_target: number | null; step_goal: number | null; sleep_goal: number | null },
+  adherence: { done: number; planned: number } | null,
+): WeeklyScoreData | null {
+  if (logs.length === 0) return null
 
-function categoryIcon(cat: string): string {
-  return MILESTONE_CATEGORIES.find(c => c.value === cat)?.icon ?? '\uD83C\uDFC6'
+  const daysWithData = logs.length
+
+  // Adherence score (0-100) — weight: 30
+  let adherenciaScore = 0
+  if (adherence && adherence.planned > 0) {
+    adherenciaScore = Math.min(Math.round((adherence.done / adherence.planned) * 100), 100)
+  }
+
+  // Calorie score (0-100) — how close to target, penalize over AND under — weight: 20
+  let caloriasScore = 0
+  if (targets.calorie_target) {
+    const cals = logs.filter(l => l.calories != null).map(l => l.calories!)
+    if (cals.length > 0) {
+      const avg = cals.reduce((a, b) => a + b, 0) / cals.length
+      const ratio = avg / targets.calorie_target
+      // Perfect = 1.0, penalize deviation
+      caloriasScore = Math.max(0, Math.round(100 - Math.abs(1 - ratio) * 200))
+    }
+  } else {
+    caloriasScore = 50 // no target set, neutral
+  }
+
+  // Protein score (0-100) — weight: 20
+  let proteinaScore = 0
+  if (targets.protein_target) {
+    const prots = logs.filter(l => l.protein_g != null).map(l => l.protein_g!)
+    if (prots.length > 0) {
+      const avg = prots.reduce((a, b) => a + b, 0) / prots.length
+      const ratio = avg / targets.protein_target
+      proteinaScore = Math.min(Math.round(ratio * 100), 100)
+    }
+  } else {
+    proteinaScore = 50
+  }
+
+  // Steps score (0-100) — weight: 15
+  let pasosScore = 0
+  if (targets.step_goal) {
+    const steps = logs.filter(l => l.steps != null).map(l => l.steps!)
+    if (steps.length > 0) {
+      const avg = steps.reduce((a, b) => a + b, 0) / steps.length
+      const ratio = avg / targets.step_goal
+      pasosScore = Math.min(Math.round(ratio * 100), 100)
+    }
+  } else {
+    pasosScore = 50
+  }
+
+  // Sleep score (0-100) — weight: 15
+  let suenoScore = 0
+  if (targets.sleep_goal) {
+    const sleeps = logs.filter(l => l.sleep_hours != null).map(l => l.sleep_hours!)
+    if (sleeps.length > 0) {
+      const avg = sleeps.reduce((a, b) => a + b, 0) / sleeps.length
+      const ratio = avg / targets.sleep_goal
+      // Perfect = 1.0, penalize under-sleeping more than over
+      suenoScore = ratio >= 1 ? 100 : Math.round(ratio * 100)
+    }
+  } else {
+    suenoScore = 50
+  }
+
+  // Weighted total
+  const score = Math.round(
+    adherenciaScore * 0.30 +
+    caloriasScore * 0.20 +
+    proteinaScore * 0.20 +
+    pasosScore * 0.15 +
+    suenoScore * 0.15
+  )
+
+  return {
+    score,
+    breakdown: {
+      adherencia: adherenciaScore,
+      calorias: caloriasScore,
+      proteina: proteinaScore,
+      pasos: pasosScore,
+      sueno: suenoScore,
+    },
+  }
 }
 
 // ─── Main component ───────────────────────────────────────────────
@@ -42,14 +147,13 @@ export default function ProgressPage() {
   // Data state
   const [prRecords, setPrRecords] = useState<PRRecord[]>([])
   const [gymAdherence, setGymAdherence] = useState<{ done: number; planned: number; percentage: number } | null>(null)
-  const [weeklyScore, setWeeklyScore] = useState<{ score: number | null; breakdown: any } | null>(null)
+  const [weeklyScore, setWeeklyScore] = useState<WeeklyScoreData | null>(null)
 
   // Milestones
   const [milestones, setMilestones] = useState<Milestone[]>([])
   const [showAddMilestone, setShowAddMilestone] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newDescription, setNewDescription] = useState('')
-  const [newCategory, setNewCategory] = useState('general')
   const [newDate, setNewDate] = useState(dateToLocal(new Date()))
   const [savingMilestone, setSavingMilestone] = useState(false)
 
@@ -60,21 +164,19 @@ export default function ProgressPage() {
       const { data: { user } } = await supabase.auth.getUser()
       const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
 
-      // ─── Active phase for frequency ────────────
-      const { data: activePhase } = await supabase
-        .from('phases')
-        .select('id, frequency, start_date, duration_weeks')
-        .eq('user_id', userId)
-        .eq('status', 'active')
+      // ─── Profile (week_start_day, targets) ─────
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('week_start_day, training_days_per_week, calorie_target, protein_target, step_goal, sleep_goal')
+        .eq('id', userId)
         .single()
 
-      // Current week start (Saturday-based)
+      const weekStartDay = profile?.week_start_day ?? 'saturday'
+      const trainingDays = profile?.training_days_per_week ?? 3
+
+      // Week start based on profile setting
       const now = new Date()
-      const currentDay = now.getDay()
-      const daysSinceSat = (currentDay + 1) % 7
-      const thisWeekStart = new Date(now)
-      thisWeekStart.setDate(thisWeekStart.getDate() - daysSinceSat)
-      const thisWeekStartStr = dateToLocal(thisWeekStart)
+      const thisWeekStartStr = getWeekStartDate(now, weekStartDay)
 
       // ─── Sessions this week (for adherence) ────
       const { data: thisWeekSessions } = await supabase
@@ -83,46 +185,43 @@ export default function ProgressPage() {
         .eq('user_id', userId)
         .gte('session_date', thisWeekStartStr)
 
-      if (activePhase?.frequency) {
-        const done = thisWeekSessions?.length ?? 0
-        const planned = activePhase.frequency
-        setGymAdherence({ done, planned, percentage: Math.round((done / planned) * 100) })
-      }
+      const done = thisWeekSessions?.length ?? 0
+      const adherenceData = { done, planned: trainingDays, percentage: Math.round((done / trainingDays) * 100) }
+      setGymAdherence(adherenceData)
 
-      // ─── Latest weekly score ───────────────────
-      const { data: latestCheckin } = await supabase
-        .from('weekly_checkins')
-        .select('weekly_score, score_breakdown, checkin_date')
+      // ─── Daily logs this week (for live weekly score) ──
+      const { data: weekLogs } = await supabase
+        .from('daily_logs')
+        .select('calories, protein_g, steps, sleep_hours')
         .eq('user_id', userId)
-        .order('checkin_date', { ascending: false })
-        .limit(1)
-        .single()
+        .gte('log_date', thisWeekStartStr)
 
-      if (latestCheckin?.weekly_score != null) {
-        setWeeklyScore({
-          score: latestCheckin.weekly_score,
-          breakdown: latestCheckin.score_breakdown,
-        })
-      }
+      const scoreData = computeWeeklyScore(
+        weekLogs ?? [],
+        {
+          calorie_target: profile?.calorie_target ?? null,
+          protein_target: profile?.protein_target ?? null,
+          step_goal: profile?.step_goal ?? null,
+          sleep_goal: profile?.sleep_goal ?? null,
+        },
+        adherenceData,
+      )
+      setWeeklyScore(scoreData)
 
-      // ─── PRs (all-time bests from last 8 weeks data) ──
-      const eightWeeksAgo = new Date()
-      eightWeeksAgo.setDate(eightWeeksAgo.getDate() - 56)
-      const eightWeeksStr = dateToLocal(eightWeeksAgo)
-
+      // ─── PRs (all-time bests) ──────────────────
       const { data: allSessions } = await supabase
         .from('executed_sessions')
         .select(`
           id, session_date,
           executed_exercises (
             id,
+            exercise_name,
             exercise_id,
             exercises ( name ),
             executed_sets ( set_number, weight_kg, reps, duration_seconds )
           )
         `)
         .eq('user_id', userId)
-        .gte('session_date', eightWeeksStr)
         .order('session_date', { ascending: true })
 
       if (allSessions && allSessions.length > 0) {
@@ -130,7 +229,8 @@ export default function ProgressPage() {
 
         for (const session of allSessions) {
           for (const ex of (session.executed_exercises ?? []) as any[]) {
-            const exName = ex.exercises?.name
+            // Use exercise_name (from Hevy) or fallback to exercises.name
+            const exName = ex.exercise_name || ex.exercises?.name
             if (!exName) continue
             if (!exerciseHistory[exName]) exerciseHistory[exName] = []
 
@@ -151,7 +251,6 @@ export default function ProgressPage() {
           }
         }
 
-        // Find all-time best per exercise (these are records)
         const prs: PRRecord[] = []
         for (const [name, history] of Object.entries(exerciseHistory)) {
           if (history.length === 0) continue
@@ -163,7 +262,6 @@ export default function ProgressPage() {
             prs.push({ exerciseName: name, weight: best.bestWeight, reps: best.bestReps, date: best.date })
           }
         }
-        // Sort by weight descending
         prs.sort((a, b) => b.weight - a.weight)
         setPrRecords(prs)
       }
@@ -199,14 +297,14 @@ export default function ProgressPage() {
         user_id: userId,
         title: newTitle.trim(),
         description: newDescription.trim() || null,
-        category: newCategory,
         milestone_date: newDate,
       })
 
-      if (!error) {
+      if (error) {
+        console.error('Error saving milestone:', error)
+      } else {
         setNewTitle('')
         setNewDescription('')
-        setNewCategory('general')
         setNewDate(dateToLocal(new Date()))
         setShowAddMilestone(false)
         fetchData()
@@ -222,6 +320,14 @@ export default function ProgressPage() {
     const supabase = createClient()
     await supabase.from('milestones').delete().eq('id', id)
     setMilestones(prev => prev.filter(m => m.id !== id))
+  }
+
+  const breakdownLabels: Record<string, string> = {
+    adherencia: 'Gym',
+    calorias: 'Cal',
+    proteina: 'Prot',
+    pasos: 'Pasos',
+    sueno: 'Sueno',
   }
 
   return (
@@ -261,54 +367,55 @@ export default function ProgressPage() {
               {/* Gym Adherence */}
               <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)]">
                 <div className="text-[.78rem] font-semibold text-gray-500 uppercase mb-2">Adherencia al Gym</div>
-                {gymAdherence ? (
-                  <>
-                    <div className="flex items-baseline gap-2 mb-2">
-                      <span className={`text-[2rem] font-extrabold ${gymAdherence.percentage >= 100 ? 'text-success' : gymAdherence.percentage >= 50 ? 'text-primary' : 'text-danger'}`}>
-                        {gymAdherence.percentage}%
-                      </span>
-                      <span className="text-[.88rem] text-gray-400">{gymAdherence.done}/{gymAdherence.planned} esta semana</span>
-                    </div>
-                    <div className="h-2.5 rounded-lg overflow-hidden bg-gray-100">
-                      <div
-                        className={`h-full rounded-lg transition-all duration-500 ${
-                          gymAdherence.done >= gymAdherence.planned ? 'bg-success' : gymAdherence.done > 0 ? 'bg-primary' : 'bg-gray-300'
-                        }`}
-                        style={{ width: `${Math.min(gymAdherence.percentage, 100)}%` }}
-                      />
-                    </div>
-                    <div className="text-[.75rem] text-gray-400 mt-1.5">
-                      {gymAdherence.done >= gymAdherence.planned
-                        ? 'Objetivo cumplido!'
-                        : `Faltan ${gymAdherence.planned - gymAdherence.done} sesion${gymAdherence.planned - gymAdherence.done > 1 ? 'es' : ''}`}
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-[.88rem] text-gray-400">Sin fase activa</div>
-                )}
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className={`text-[2rem] font-extrabold ${gymAdherence && gymAdherence.percentage >= 100 ? 'text-success' : gymAdherence && gymAdherence.percentage >= 50 ? 'text-primary' : 'text-danger'}`}>
+                    {gymAdherence?.percentage ?? 0}%
+                  </span>
+                  <span className="text-[.88rem] text-gray-400">{gymAdherence?.done ?? 0}/{gymAdherence?.planned ?? 0} esta semana</span>
+                </div>
+                <div className="h-2.5 rounded-lg overflow-hidden bg-gray-100">
+                  <div
+                    className={`h-full rounded-lg transition-all duration-500 ${
+                      gymAdherence && gymAdherence.done >= gymAdherence.planned ? 'bg-success' : gymAdherence && gymAdherence.done > 0 ? 'bg-primary' : 'bg-gray-300'
+                    }`}
+                    style={{ width: `${Math.min(gymAdherence?.percentage ?? 0, 100)}%` }}
+                  />
+                </div>
+                <div className="text-[.75rem] text-gray-400 mt-1.5">
+                  {gymAdherence && gymAdherence.done >= gymAdherence.planned
+                    ? 'Objetivo cumplido!'
+                    : gymAdherence ? `Faltan ${gymAdherence.planned - gymAdherence.done} sesion${gymAdherence.planned - gymAdherence.done > 1 ? 'es' : ''}` : ''}
+                </div>
               </div>
 
               {/* Weekly Score */}
               <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)]">
-                <div className="text-[.78rem] font-semibold text-gray-500 uppercase mb-2">Weekly Score</div>
-                {weeklyScore?.score != null ? (
+                <div className="text-[.78rem] font-semibold text-gray-500 uppercase mb-2">Puntaje Semanal</div>
+                {weeklyScore ? (
                   <>
-                    <div className="flex items-baseline gap-2 mb-2">
+                    <div className="flex items-baseline gap-2 mb-3">
                       <span className={`text-[2rem] font-extrabold ${weeklyScore.score >= 80 ? 'text-success' : weeklyScore.score >= 60 ? 'text-primary' : weeklyScore.score >= 40 ? 'text-warning' : 'text-danger'}`}>
                         {weeklyScore.score}
                       </span>
                       <span className="text-[.88rem] text-gray-400">/ 100</span>
                     </div>
-                    {weeklyScore.breakdown && typeof weeklyScore.breakdown === 'object' && (
-                      <div className="flex flex-wrap gap-x-3 gap-y-1 text-[.75rem] text-gray-400">
-                        {Object.entries(weeklyScore.breakdown as Record<string, number>).map(([key, val]) => (
-                          <span key={key}>{key}: {val}</span>
-                        ))}
-                      </div>
-                    )}
+                    <div className="flex flex-col gap-1.5">
+                      {Object.entries(weeklyScore.breakdown).map(([key, val]) => (
+                        <div key={key} className="flex items-center gap-2">
+                          <span className="text-[.72rem] text-gray-400 w-10">{breakdownLabels[key] ?? key}</span>
+                          <div className="flex-1 h-1.5 rounded-lg overflow-hidden bg-gray-100">
+                            <div
+                              className={`h-full rounded-lg ${val >= 80 ? 'bg-success' : val >= 60 ? 'bg-primary' : val >= 40 ? 'bg-warning' : 'bg-danger'}`}
+                              style={{ width: `${val}%` }}
+                            />
+                          </div>
+                          <span className="text-[.72rem] text-gray-500 font-semibold w-7 text-right">{val}</span>
+                        </div>
+                      ))}
+                    </div>
                   </>
                 ) : (
-                  <div className="text-[.88rem] text-gray-400">Sin checkin reciente</div>
+                  <div className="text-[.88rem] text-gray-400">Sin datos esta semana</div>
                 )}
               </div>
             </div>
@@ -317,7 +424,7 @@ export default function ProgressPage() {
             <div className="mb-6">
               <div className="text-[1.08rem] font-bold text-gray-800 mb-4 flex items-center gap-2">
                 Records Personales
-                <span className="text-[.77rem] text-gray-400 font-normal">Mejores marcas de Hevy</span>
+                <span className="text-[.77rem] text-gray-400 font-normal">{prRecords.length > 0 ? `${prRecords.length} ejercicios` : 'Mejores marcas de Hevy'}</span>
               </div>
               {prRecords.length > 0 ? (
                 <div className="bg-card rounded-[var(--radius)] shadow-[var(--shadow)] overflow-hidden">
@@ -350,7 +457,7 @@ export default function ProgressPage() {
             {/* Milestones */}
             <div className="mb-6">
               <div className="flex justify-between items-center mb-4">
-                <div className="text-[1.08rem] font-bold text-gray-800 flex items-center gap-2">
+                <div className="text-[1.08rem] font-bold text-gray-800">
                   Hitos Personales
                 </div>
                 <button
@@ -361,7 +468,7 @@ export default function ProgressPage() {
                 </button>
               </div>
 
-              {/* Add milestone form */}
+              {/* Add milestone form — simplified, no category */}
               {showAddMilestone && (
                 <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)] mb-4 fade-in">
                   <div className="mb-3">
@@ -374,28 +481,16 @@ export default function ProgressPage() {
                       className="w-full border border-gray-200 rounded-[var(--radius-sm)] px-3 py-2 text-[.88rem] outline-none focus:border-primary transition-colors"
                     />
                   </div>
-                  <div className="mb-3">
-                    <label className="text-[.77rem] text-gray-400 block mb-1">Descripcion (opcional)</label>
-                    <input
-                      type="text"
-                      value={newDescription}
-                      onChange={(e) => setNewDescription(e.target.value)}
-                      placeholder="Ej: Despues de 3 meses de progresion"
-                      className="w-full border border-gray-200 rounded-[var(--radius-sm)] px-3 py-2 text-[.88rem] outline-none focus:border-primary transition-colors"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="grid grid-cols-[1fr_auto] gap-3 mb-3">
                     <div>
-                      <label className="text-[.77rem] text-gray-400 block mb-1">Categoria</label>
-                      <select
-                        value={newCategory}
-                        onChange={(e) => setNewCategory(e.target.value)}
-                        className="w-full border border-gray-200 rounded-[var(--radius-sm)] px-3 py-2 text-[.88rem] outline-none focus:border-primary bg-white"
-                      >
-                        {MILESTONE_CATEGORIES.map(c => (
-                          <option key={c.value} value={c.value}>{c.icon} {c.label}</option>
-                        ))}
-                      </select>
+                      <label className="text-[.77rem] text-gray-400 block mb-1">Descripcion (opcional)</label>
+                      <input
+                        type="text"
+                        value={newDescription}
+                        onChange={(e) => setNewDescription(e.target.value)}
+                        placeholder="Ej: Despues de 3 meses de progresion"
+                        className="w-full border border-gray-200 rounded-[var(--radius-sm)] px-3 py-2 text-[.88rem] outline-none focus:border-primary transition-colors"
+                      />
                     </div>
                     <div>
                       <label className="text-[.77rem] text-gray-400 block mb-1">Fecha</label>
@@ -422,7 +517,7 @@ export default function ProgressPage() {
                 <div className="flex flex-col gap-3">
                   {milestones.map((m) => (
                     <div key={m.id} className="bg-card rounded-[var(--radius)] p-[14px_18px] shadow-[var(--shadow)] flex items-start gap-3">
-                      <span className="text-[1.3rem] mt-0.5">{categoryIcon(m.category)}</span>
+                      <span className="text-[1.2rem] mt-0.5">{'\uD83C\uDFC6'}</span>
                       <div className="flex-1 min-w-0">
                         <div className="font-semibold text-[.92rem] text-gray-800">{m.title}</div>
                         {m.description && (
@@ -454,7 +549,6 @@ export default function ProgressPage() {
       <RightPanel>
         <div className="font-bold text-base text-gray-800 mb-[18px]">Resumen</div>
 
-        {/* Adherence summary */}
         <div className="bg-card rounded-[var(--radius)] p-[12px_14px] shadow-[var(--shadow)] mb-3">
           <div className="text-[.77rem] text-gray-400 mb-0.5">Adherencia Gym</div>
           <div className={`font-extrabold text-[1.1rem] ${gymAdherence && gymAdherence.percentage >= 100 ? 'text-success' : 'text-primary'}`}>
@@ -463,8 +557,8 @@ export default function ProgressPage() {
         </div>
 
         <div className="bg-card rounded-[var(--radius)] p-[12px_14px] shadow-[var(--shadow)] mb-3">
-          <div className="text-[.77rem] text-gray-400 mb-0.5">Weekly Score</div>
-          <div className={`font-extrabold text-[1.1rem] ${weeklyScore?.score != null && weeklyScore.score >= 80 ? 'text-success' : 'text-primary'}`}>
+          <div className="text-[.77rem] text-gray-400 mb-0.5">Puntaje Semanal</div>
+          <div className={`font-extrabold text-[1.1rem] ${weeklyScore && weeklyScore.score >= 80 ? 'text-success' : 'text-primary'}`}>
             {weeklyScore?.score ?? '--'}
           </div>
         </div>
@@ -480,7 +574,7 @@ export default function ProgressPage() {
           {milestones.length > 0 ? (
             milestones.slice(0, 5).map((m) => (
               <div key={m.id} className="p-[10px_12px] bg-primary-light rounded-[var(--radius-xs)] text-[.84rem]">
-                <div className="font-semibold text-primary-dark">{categoryIcon(m.category)} {m.title}</div>
+                <div className="font-semibold text-primary-dark">{'\uD83C\uDFC6'} {m.title}</div>
                 <div className="text-primary-dark opacity-80 text-[.78rem]">{formatDate(m.milestone_date)}</div>
               </div>
             ))

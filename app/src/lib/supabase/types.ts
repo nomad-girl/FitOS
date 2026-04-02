@@ -705,6 +705,7 @@ export interface Database {
           executed_session_id: string
           exercise_id: string | null
           routine_exercise_id: string | null
+          exercise_name: string | null
           display_order: number
           created_at: string
         }
@@ -713,12 +714,14 @@ export interface Database {
           executed_session_id: string
           exercise_id?: string | null
           routine_exercise_id?: string | null
+          exercise_name?: string | null
           display_order?: number
           created_at?: string
         }
         Update: {
           exercise_id?: string | null
           routine_exercise_id?: string | null
+          exercise_name?: string | null
           display_order?: number
         }
       }

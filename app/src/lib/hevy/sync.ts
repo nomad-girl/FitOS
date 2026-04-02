@@ -188,6 +188,7 @@ export async function syncHevyWorkouts(
             .insert({
               executed_session_id: session.id,
               exercise_id: exerciseId,
+              exercise_name: hevyExercise.title,
               display_order: hevyExercise.index,
             })
             .select('id')

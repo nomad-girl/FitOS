@@ -45,6 +45,9 @@ interface LogFormData {
   energy: string
   hunger: string
   fatigue_level: string
+  training_volume_kg: string
+  training_variant: string
+  pr_count: string
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -164,7 +167,7 @@ function getDaysSince(startDate: string | null): string[] {
 }
 
 function emptyFormData(): LogFormData {
-  return { calories: '', protein_g: '', steps: '', sleep_hours: '', energy: '', hunger: '', fatigue_level: '' }
+  return { calories: '', protein_g: '', steps: '', sleep_hours: '', energy: '', hunger: '', fatigue_level: '', training_volume_kg: '', training_variant: '', pr_count: '' }
 }
 
 function logToFormData(log: DailyLog): LogFormData {
@@ -176,6 +179,9 @@ function logToFormData(log: DailyLog): LogFormData {
     energy: log.energy != null ? String(log.energy) : '',
     hunger: log.hunger != null ? String(log.hunger) : '',
     fatigue_level: log.fatigue_level != null ? String(log.fatigue_level) : '',
+    training_volume_kg: log.training_volume_kg != null ? String(log.training_volume_kg) : '',
+    training_variant: log.training_variant ?? '',
+    pr_count: log.pr_count != null ? String(log.pr_count) : '',
   }
 }
 
@@ -532,6 +538,9 @@ export default function JournalPage() {
             energy: parseNum(formData.energy),
             hunger: parseNum(formData.hunger),
             fatigue_level: parseNum(formData.fatigue_level),
+            training_volume_kg: parseNum(formData.training_volume_kg),
+            training_variant: formData.training_variant.trim() || null,
+            pr_count: parseNum(formData.pr_count),
           },
           { onConflict: 'user_id,log_date' }
         )
@@ -1023,6 +1032,11 @@ export default function JournalPage() {
                             {entry.log!.fatigue_level != null && (
                               <span>Fatiga {ratingDots(entry.log!.fatigue_level)}</span>
                             )}
+                            {entry.log!.training_variant && (
+                              <span className="font-semibold text-primary">
+                                Dia {entry.log!.training_variant}{entry.log!.training_volume_kg ? `: ${(entry.log!.training_volume_kg / 1000).toFixed(1)}t` : ''}{entry.log!.pr_count ? ` ${entry.log!.pr_count}PRs` : ''}
+                              </span>
+                            )}
                           </div>
                         )}
                       </button>
@@ -1144,6 +1158,52 @@ export default function JournalPage() {
                                     {v}
                                   </button>
                                 ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Training */}
+                          <div className="mt-4 pt-4 border-t border-gray-100">
+                            <div className="text-[.77rem] text-gray-400 uppercase font-semibold mb-2">Entrenamiento (opcional)</div>
+                            <div className="grid grid-cols-3 gap-3">
+                              <div>
+                                <label className="text-[.72rem] text-gray-500 block mb-1">Variante</label>
+                                <div className="flex gap-1.5">
+                                  {['A', 'B', 'C'].map((v) => (
+                                    <button
+                                      key={v}
+                                      type="button"
+                                      onClick={() => handleFormChange('training_variant', formData.training_variant === v ? '' : v)}
+                                      className={`flex-1 py-2 rounded-[var(--radius)] text-[.84rem] font-semibold border transition-all ${
+                                        formData.training_variant === v
+                                          ? 'bg-primary text-white border-primary'
+                                          : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300'
+                                      }`}
+                                    >
+                                      {v}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                              <div>
+                                <label className="text-[.72rem] text-gray-500 block mb-1">Volumen (kg)</label>
+                                <input
+                                  type="number"
+                                  value={formData.training_volume_kg}
+                                  onChange={(e) => handleFormChange('training_volume_kg', e.target.value)}
+                                  placeholder="9500"
+                                  className="w-full py-2 px-3 border border-gray-200 rounded-[var(--radius)] text-[.88rem] focus:border-primary focus:outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[.72rem] text-gray-500 block mb-1">PRs</label>
+                                <input
+                                  type="number"
+                                  value={formData.pr_count}
+                                  onChange={(e) => handleFormChange('pr_count', e.target.value)}
+                                  placeholder="0"
+                                  className="w-full py-2 px-3 border border-gray-200 rounded-[var(--radius)] text-[.88rem] focus:border-primary focus:outline-none"
+                                />
                               </div>
                             </div>
                           </div>

@@ -565,6 +565,35 @@ export default function DashboardPage() {
                   ))}
                   <td className="py-[7px] px-2 text-center"><BatteryBar value={tableAverages?.avg_fatigue} color="#EF4444" inverse /></td>
                 </tr>
+                <tr>
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Entreno</td>
+                  {dayLabels.map((d) => {
+                    const log = logsByDay[d]
+                    if (!log?.training_variant) return <td key={d} className="py-[7px] px-2 text-center text-gray-300">{'\u2014'}</td>
+                    return (
+                      <td key={d} className="py-[7px] px-2 text-center">
+                        <span className="font-bold text-primary text-[.75rem]">{log.training_variant}</span>
+                        {log.training_volume_kg ? <span className="text-gray-500 text-[.68rem] block">{(log.training_volume_kg / 1000).toFixed(1)}t</span> : null}
+                        {log.pr_count ? <span className="text-green-600 text-[.68rem] block">{log.pr_count}PR</span> : null}
+                      </td>
+                    )
+                  })}
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800 text-[.72rem]">
+                    {(() => {
+                      const trainDays = dayLabels.filter((d) => logsByDay[d]?.training_variant)
+                      const totalVol = trainDays.reduce((sum, d) => sum + (logsByDay[d]?.training_volume_kg ?? 0), 0)
+                      const totalPrs = trainDays.reduce((sum, d) => sum + (logsByDay[d]?.pr_count ?? 0), 0)
+                      if (trainDays.length === 0) return '\u2014'
+                      return (
+                        <>
+                          <span>{trainDays.length}d</span>
+                          {totalVol > 0 && <span className="block text-[.68rem] text-gray-500">{(totalVol / 1000).toFixed(1)}t</span>}
+                          {totalPrs > 0 && <span className="block text-[.68rem] text-green-600">{totalPrs}PR</span>}
+                        </>
+                      )
+                    })()}
+                  </td>
+                </tr>
               </tbody>
             </table>
           ) : (

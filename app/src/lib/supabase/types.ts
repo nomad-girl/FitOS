@@ -372,6 +372,9 @@ export interface Database {
           energy: number | null
           hunger: number | null
           fatigue_level: number | null
+          training_volume_kg: number | null
+          training_variant: string | null
+          pr_count: number | null
           notes: string | null
           created_at: string
           updated_at: string
@@ -389,6 +392,9 @@ export interface Database {
           energy?: number | null
           hunger?: number | null
           fatigue_level?: number | null
+          training_volume_kg?: number | null
+          training_variant?: string | null
+          pr_count?: number | null
           notes?: string | null
           created_at?: string
           updated_at?: string
@@ -404,6 +410,9 @@ export interface Database {
           energy?: number | null
           hunger?: number | null
           fatigue_level?: number | null
+          training_volume_kg?: number | null
+          training_variant?: string | null
+          pr_count?: number | null
           notes?: string | null
           updated_at?: string
         }

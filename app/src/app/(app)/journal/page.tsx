@@ -204,8 +204,9 @@ export default function JournalPage() {
   const [deleting, setDeleting] = useState(false)
 
   // Check-ins state
-  const [checkins, setCheckins] = useState<(WeeklyCheckin & { phase_name?: string })[]>([])
+  const [checkins, setCheckins] = useState<(WeeklyCheckin & { phase_name?: string; decisions?: WeeklyDecision[] })[]>([])
   const [checkinsLoading, setCheckinsLoading] = useState(false)
+  const [expandedCheckinId, setExpandedCheckinId] = useState<string | null>(null)
 
   const fetchCheckins = useCallback(async () => {
     try {
@@ -222,16 +223,32 @@ export default function JournalPage() {
       const { data: { user } } = await supabase.auth.getUser()
       const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
 
-      const { data: allCheckins } = await supabase
-        .from('weekly_checkins')
-        .select('*, phases(name)')
-        .eq('user_id', userId)
-        .order('checkin_date', { ascending: false })
+      const [{ data: allCheckins }, { data: allDecisions }] = await Promise.all([
+        supabase
+          .from('weekly_checkins')
+          .select('*, phases(name)')
+          .eq('user_id', userId)
+          .order('checkin_date', { ascending: false }),
+        supabase
+          .from('weekly_decisions')
+          .select('*')
+          .eq('user_id', userId),
+      ])
+
+      const decisionsByCheckin = new Map<string, WeeklyDecision[]>()
+      if (allDecisions) {
+        allDecisions.forEach((d) => {
+          const existing = decisionsByCheckin.get(d.checkin_id) ?? []
+          existing.push(d as WeeklyDecision)
+          decisionsByCheckin.set(d.checkin_id, existing)
+        })
+      }
 
       const items = (allCheckins ?? []).map((c: Record<string, unknown>) => ({
         ...c,
         phase_name: (c.phases as { name: string } | null)?.name ?? '',
-      })) as (WeeklyCheckin & { phase_name?: string })[]
+        decisions: decisionsByCheckin.get(c.id as string) ?? [],
+      })) as (WeeklyCheckin & { phase_name?: string; decisions?: WeeklyDecision[] })[]
 
       setCheckins(items)
       setCache(cacheKey, items)
@@ -739,56 +756,176 @@ export default function JournalPage() {
                   }
                   const trend = c.performance_trend ? trendMap[c.performance_trend] : null
 
+                  const isExpanded = expandedCheckinId === c.id
+                  const decisions = c.decisions ?? []
+
                   return (
-                    <div key={c.id} className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)]">
-                      <div className="flex items-center justify-between mb-2">
-                        <div>
-                          <span className="font-bold text-[.95rem] text-gray-800">
-                            {c.phase_name ? `${c.phase_name} — ` : ''}Semana {c.week_number}
-                          </span>
-                          <span className="text-gray-400 text-[.78rem] ml-2">{formatDate(c.checkin_date)}</span>
+                    <div key={c.id} className="bg-card rounded-[var(--radius)] shadow-[var(--shadow)] overflow-hidden">
+                      {/* Header - clickable */}
+                      <button
+                        onClick={() => setExpandedCheckinId(isExpanded ? null : c.id)}
+                        className="w-full p-[18px_22px] text-left bg-transparent border-none cursor-pointer hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <span className="font-bold text-[.95rem] text-gray-800">
+                              {c.phase_name ? `${c.phase_name} — ` : ''}Semana {c.week_number}
+                            </span>
+                            <span className="text-gray-400 text-[.78rem] ml-2">{formatDate(c.checkin_date)}</span>
+                          </div>
+                          <span className="text-gray-400 text-[.82rem]">{isExpanded ? '\u25B2' : '\u25BC'}</span>
                         </div>
-                        <Link
-                          href={`/checkin`}
-                          className="text-primary text-[.82rem] font-semibold hover:underline"
-                        >
-                          Editar
-                        </Link>
-                      </div>
 
-                      {/* Metrics row */}
-                      <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[.82rem] text-gray-600 mb-2">
-                        {c.weight_kg != null && (
-                          <span>Peso: <strong className="text-gray-800">{c.weight_kg} kg</strong></span>
-                        )}
-                        {c.waist_cm != null && (
-                          <span>Cintura: <strong className="text-gray-800">{c.waist_cm} cm</strong></span>
-                        )}
-                        {c.hip_cm != null && (
-                          <span>Cadera: <strong className="text-gray-800">{c.hip_cm} cm</strong></span>
-                        )}
-                        {c.avg_calories != null && (
-                          <span>Cal: <strong className="text-gray-800">{Math.round(c.avg_calories)}</strong></span>
-                        )}
-                        {c.avg_protein != null && (
-                          <span>Prot: <strong className="text-gray-800">{Math.round(c.avg_protein)}g</strong></span>
-                        )}
-                        {c.avg_sleep_hours != null && (
-                          <span>Sueno: <strong className="text-gray-800">{c.avg_sleep_hours}h</strong></span>
-                        )}
-                      </div>
+                        {/* Metrics row */}
+                        <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[.82rem] text-gray-600 mb-2">
+                          {c.weight_kg != null && (
+                            <span>Peso: <strong className="text-gray-800">{c.weight_kg} kg</strong></span>
+                          )}
+                          {c.waist_cm != null && (
+                            <span>Cintura: <strong className="text-gray-800">{c.waist_cm} cm</strong></span>
+                          )}
+                          {c.hip_cm != null && (
+                            <span>Cadera: <strong className="text-gray-800">{c.hip_cm} cm</strong></span>
+                          )}
+                          {c.avg_calories != null && (
+                            <span>Cal: <strong className="text-gray-800">{Math.round(c.avg_calories)}</strong></span>
+                          )}
+                          {c.avg_protein != null && (
+                            <span>Prot: <strong className="text-gray-800">{Math.round(c.avg_protein)}g</strong></span>
+                          )}
+                          {c.avg_sleep_hours != null && (
+                            <span>Sueno: <strong className="text-gray-800">{c.avg_sleep_hours}h</strong></span>
+                          )}
+                        </div>
 
-                      {/* Trend + notes */}
-                      <div className="flex items-center gap-3 text-[.82rem]">
-                        {trend && (
-                          <span className="inline-flex items-center gap-1 py-0.5 px-2 rounded-full text-[.75rem] font-medium" style={{ backgroundColor: `${trend.color}15`, color: trend.color }}>
-                            {c.performance_trend === 'improving' ? '\u2191' : c.performance_trend === 'declining' ? '\u2193' : '\u2194\uFE0F'} {trend.label}
-                          </span>
-                        )}
-                        {c.notes && (
-                          <span className="text-gray-500 truncate max-w-[300px]">{c.notes}</span>
-                        )}
-                      </div>
+                        {/* Trend + notes */}
+                        <div className="flex items-center gap-3 text-[.82rem]">
+                          {trend && (
+                            <span className="inline-flex items-center gap-1 py-0.5 px-2 rounded-full text-[.75rem] font-medium" style={{ backgroundColor: `${trend.color}15`, color: trend.color }}>
+                              {c.performance_trend === 'improving' ? '\u2191' : c.performance_trend === 'declining' ? '\u2193' : '\u2194\uFE0F'} {trend.label}
+                            </span>
+                          )}
+                          {c.notes && !isExpanded && (
+                            <span className="text-gray-500 truncate max-w-[300px]">{c.notes}</span>
+                          )}
+                        </div>
+                      </button>
+
+                      {/* Expanded details */}
+                      {isExpanded && (
+                        <div className="px-[22px] pb-[18px] border-t border-gray-100 pt-4 fade-in">
+                          {/* Full metrics grid */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                            {c.avg_calories != null && (
+                              <div className="bg-gray-50 rounded-[var(--radius-sm)] p-3 text-center">
+                                <div className="text-[.72rem] text-gray-400 uppercase font-semibold">Calorias</div>
+                                <div className="text-[1.1rem] font-bold text-gray-800">{Math.round(c.avg_calories)}</div>
+                              </div>
+                            )}
+                            {c.avg_protein != null && (
+                              <div className="bg-gray-50 rounded-[var(--radius-sm)] p-3 text-center">
+                                <div className="text-[.72rem] text-gray-400 uppercase font-semibold">Proteina</div>
+                                <div className="text-[1.1rem] font-bold text-gray-800">{Math.round(c.avg_protein)}g</div>
+                              </div>
+                            )}
+                            {c.avg_steps != null && (
+                              <div className="bg-gray-50 rounded-[var(--radius-sm)] p-3 text-center">
+                                <div className="text-[.72rem] text-gray-400 uppercase font-semibold">Pasos</div>
+                                <div className="text-[1.1rem] font-bold text-gray-800">{(c.avg_steps / 1000).toFixed(1)}k</div>
+                              </div>
+                            )}
+                            {c.avg_sleep_hours != null && (
+                              <div className="bg-gray-50 rounded-[var(--radius-sm)] p-3 text-center">
+                                <div className="text-[.72rem] text-gray-400 uppercase font-semibold">Sueno</div>
+                                <div className="text-[1.1rem] font-bold text-gray-800">{c.avg_sleep_hours}h</div>
+                              </div>
+                            )}
+                            {c.avg_energy != null && (
+                              <div className="bg-gray-50 rounded-[var(--radius-sm)] p-3 text-center">
+                                <div className="text-[.72rem] text-gray-400 uppercase font-semibold">Energia</div>
+                                <div className="text-[1.1rem] font-bold text-gray-800">{c.avg_energy}/5</div>
+                              </div>
+                            )}
+                            {c.avg_hunger != null && (
+                              <div className="bg-gray-50 rounded-[var(--radius-sm)] p-3 text-center">
+                                <div className="text-[.72rem] text-gray-400 uppercase font-semibold">Hambre</div>
+                                <div className="text-[1.1rem] font-bold text-gray-800">{c.avg_hunger}/5</div>
+                              </div>
+                            )}
+                            {c.avg_fatigue != null && (
+                              <div className="bg-gray-50 rounded-[var(--radius-sm)] p-3 text-center">
+                                <div className="text-[.72rem] text-gray-400 uppercase font-semibold">Fatiga</div>
+                                <div className="text-[1.1rem] font-bold text-gray-800">{c.avg_fatigue}/5</div>
+                              </div>
+                            )}
+                            {c.weekly_score != null && (
+                              <div className="bg-primary-light rounded-[var(--radius-sm)] p-3 text-center">
+                                <div className="text-[.72rem] text-primary-dark uppercase font-semibold">Score</div>
+                                <div className="text-[1.1rem] font-bold text-primary-dark">{c.weekly_score}</div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Body measurements */}
+                          {(c.weight_kg != null || c.waist_cm != null || c.hip_cm != null || c.thigh_cm != null) && (
+                            <div className="mb-4">
+                              <div className="text-[.77rem] text-gray-400 uppercase font-semibold mb-2">Medidas Corporales</div>
+                              <div className="flex flex-wrap gap-x-6 gap-y-1 text-[.85rem] text-gray-700">
+                                {c.weight_kg != null && <span>Peso: <strong>{c.weight_kg} kg</strong></span>}
+                                {c.waist_cm != null && <span>Cintura: <strong>{c.waist_cm} cm</strong></span>}
+                                {c.hip_cm != null && <span>Cadera: <strong>{c.hip_cm} cm</strong></span>}
+                                {c.thigh_cm != null && <span>Muslo: <strong>{c.thigh_cm} cm</strong></span>}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* AI Analysis */}
+                          {c.ai_analysis && (
+                            <div className="mb-4 p-[14px_16px] bg-blue-50 border-l-[3px] border-primary rounded-[var(--radius-sm)]">
+                              <div className="text-[.77rem] text-primary-dark uppercase font-semibold mb-2">Analisis IA</div>
+                              <div className="text-[.85rem] text-gray-700 whitespace-pre-wrap leading-relaxed">{c.ai_analysis}</div>
+                            </div>
+                          )}
+
+                          {/* Decisions */}
+                          {decisions.length > 0 && (
+                            <div className="mb-4">
+                              <div className="text-[.77rem] text-gray-400 uppercase font-semibold mb-2">Decisiones</div>
+                              {decisions.map((d) => (
+                                <div key={d.id} className="mb-2">
+                                  <div className="flex flex-wrap gap-1.5 mb-1">
+                                    {decisionBadges(d).map((b, i) => (
+                                      <Badge key={i} variant={b.variant}>{b.label}</Badge>
+                                    ))}
+                                  </div>
+                                  {d.ai_recommendation && (
+                                    <div className="text-[.82rem] text-gray-500 italic mt-1">IA: {d.ai_recommendation}</div>
+                                  )}
+                                  {d.notes && (
+                                    <div className="text-[.82rem] text-gray-600 mt-1">{d.notes}</div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Notes */}
+                          {c.notes && (
+                            <div className="mb-4">
+                              <div className="text-[.77rem] text-gray-400 uppercase font-semibold mb-1">Notas</div>
+                              <div className="text-[.85rem] text-gray-700">{c.notes}</div>
+                            </div>
+                          )}
+
+                          {/* Edit link */}
+                          <Link
+                            href="/checkin"
+                            className="inline-flex items-center gap-1 text-primary text-[.85rem] font-semibold hover:underline"
+                          >
+                            Editar check-in
+                          </Link>
+                        </div>
+                      )}
                     </div>
                   )
                 })}

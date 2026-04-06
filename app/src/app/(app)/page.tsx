@@ -231,6 +231,27 @@ export default function DashboardPage() {
 
   const formatSteps = (s: number | null) => s ? `${(s / 1000).toFixed(1)}k` : null
 
+  // Battery bar for 1-5 scale metrics
+  const BatteryBar = ({ value, color, inverse }: { value: number | null | undefined; color: string; inverse?: boolean }) => {
+    if (value == null) return <span className="text-gray-300">{'\u2014'}</span>
+    const v = Math.round(value)
+    const displayColor = inverse ? (v <= 2 ? '#10B981' : v <= 3 ? '#F59E0B' : '#EF4444') : (v >= 4 ? '#10B981' : v >= 3 ? '#F59E0B' : '#EF4444')
+    return (
+      <div className="flex items-center justify-center gap-[2px]" title={`${value}/5`}>
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div
+            key={i}
+            className="w-[5px] rounded-[1px]"
+            style={{
+              height: `${8 + i * 2}px`,
+              backgroundColor: i <= v ? displayColor : '#E5E7EB',
+            }}
+          />
+        ))}
+      </div>
+    )
+  }
+
   // Score data (live computation)
   const score = liveScore?.score ?? null
   const scoreBreakdown: Record<string, number | null> | null = liveScore ? {
@@ -526,23 +547,23 @@ export default function DashboardPage() {
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Energia</td>
                   {dayLabels.map((d) => (
-                    <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.energy ?? '\u2014'}</td>
+                    <td key={d} className="py-[7px] px-2 text-center"><BatteryBar value={logsByDay[d]?.energy} color="#10B981" /></td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_energy ?? '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center"><BatteryBar value={tableAverages?.avg_energy} color="#10B981" /></td>
                 </tr>
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Hambre</td>
                   {dayLabels.map((d) => (
-                    <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.hunger ?? '\u2014'}</td>
+                    <td key={d} className="py-[7px] px-2 text-center"><BatteryBar value={logsByDay[d]?.hunger} color="#F59E0B" inverse /></td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_hunger ?? '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center"><BatteryBar value={tableAverages?.avg_hunger} color="#F59E0B" inverse /></td>
                 </tr>
                 <tr>
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Fatiga</td>
                   {dayLabels.map((d) => (
-                    <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.fatigue_level ?? '\u2014'}</td>
+                    <td key={d} className="py-[7px] px-2 text-center"><BatteryBar value={logsByDay[d]?.fatigue_level} color="#EF4444" inverse /></td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_fatigue ?? '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center"><BatteryBar value={tableAverages?.avg_fatigue} color="#EF4444" inverse /></td>
                 </tr>
               </tbody>
             </table>

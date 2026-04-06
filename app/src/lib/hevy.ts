@@ -134,3 +134,19 @@ export async function fetchHevyExerciseTemplates(
     page_size: '10',
   })
 }
+
+export async function fetchAllHevyExerciseTemplates(): Promise<HevyExerciseTemplate[]> {
+  const all: HevyExerciseTemplate[] = []
+  let page = 1
+  let pageCount = 1
+  while (page <= pageCount) {
+    const data = await hevyFetch<HevyExerciseTemplatesResponse>('exercise_templates', {
+      page: page.toString(),
+      page_size: '100',
+    })
+    all.push(...data.exercise_templates)
+    pageCount = data.page_count
+    page++
+  }
+  return all
+}

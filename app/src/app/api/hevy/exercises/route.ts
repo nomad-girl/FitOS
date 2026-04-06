@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchHevyExerciseTemplates } from '@/lib/hevy'
+import { fetchHevyExerciseTemplates, fetchAllHevyExerciseTemplates } from '@/lib/hevy'
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
+    const all = searchParams.get('all')
     const page = parseInt(searchParams.get('page') || '1', 10)
+
+    if (all === 'true') {
+      const exercises = await fetchAllHevyExerciseTemplates()
+      return NextResponse.json({ exercise_templates: exercises })
+    }
 
     const data = await fetchHevyExerciseTemplates(page)
     return NextResponse.json(data)

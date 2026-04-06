@@ -34,7 +34,7 @@ function getWeekStart(date: Date, weekStartDay: string = 'saturday'): string {
   return dateToLocal(d)
 }
 
-export function useWeeklyData(phaseId?: string | null, weekStartDay: string = 'saturday') {
+export function useWeeklyData(phaseId?: string | null, weekStartDay: string = 'saturday', weekOffset: number = 0) {
   const [data, setData] = useState<WeeklyData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -42,7 +42,7 @@ export function useWeeklyData(phaseId?: string | null, weekStartDay: string = 's
   const fetchWeeklyData = useCallback(async () => {
     try {
       // Check cache first
-      const cacheKey = `dashboard:weeklyData:${phaseId ?? 'none'}`
+      const cacheKey = `dashboard:weeklyData:${phaseId ?? 'none'}:${weekOffset}`
       const cached = getCached<WeeklyData>(cacheKey)
       if (cached) {
         setData(cached)
@@ -54,7 +54,11 @@ export function useWeeklyData(phaseId?: string | null, weekStartDay: string = 's
       const supabase = createClient()
       const userId = await getUserId()
 
-      const weekStart = getWeekStart(new Date(), weekStartDay)
+      const baseDate = new Date()
+      if (weekOffset !== 0) {
+        baseDate.setDate(baseDate.getDate() + weekOffset * 7)
+      }
+      const weekStart = getWeekStart(baseDate, weekStartDay)
       const weekEnd = parseLocalDate(weekStart)
       weekEnd.setDate(weekEnd.getDate() + 6)
       const weekEndStr = dateToLocal(weekEnd)
@@ -121,7 +125,7 @@ export function useWeeklyData(phaseId?: string | null, weekStartDay: string = 's
     } finally {
       setLoading(false)
     }
-  }, [phaseId, weekStartDay])
+  }, [phaseId, weekStartDay, weekOffset])
 
   useEffect(() => {
     fetchWeeklyData()

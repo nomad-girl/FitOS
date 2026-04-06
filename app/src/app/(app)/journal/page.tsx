@@ -150,13 +150,14 @@ function buildContextString(checkin: WeeklyCheckin): string | null {
   return parts.length > 0 ? parts.join(', ') + '.' : null
 }
 
-function getLast30Days(): string[] {
+function getDaysSince(startDate: string | null): string[] {
   const days: string[] = []
   const today = new Date()
-  for (let i = 0; i < 30; i++) {
-    const d = new Date(today)
-    d.setDate(d.getDate() - i)
-    days.push(dateToLocal(d))
+  // If no start date, show last 7 days
+  const start = startDate ? new Date(startDate + 'T00:00:00') : (() => { const d = new Date(today); d.setDate(d.getDate() - 6); return d })()
+  // From today back to start date
+  for (let d = new Date(today); d >= start; d.setDate(d.getDate() - 1)) {
+    days.push(dateToLocal(new Date(d)))
   }
   return days
 }
@@ -193,6 +194,7 @@ export default function JournalPage() {
   const [loading, setLoading] = useState(true)
 
   // Daily logs state
+  const [phaseStartDate, setPhaseStartDate] = useState<string | null>(null)
   const [dayEntries, setDayEntries] = useState<DayEntry[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [expandedDate, setExpandedDate] = useState<string | null>(null)
@@ -281,8 +283,13 @@ export default function JournalPage() {
 
           const stats: { label: string; value: string }[] = []
 
-          if (phase.status === 'active' && weekCount != null) {
-            stats.push({ label: 'Progreso', value: `Semana ${weekCount} de ${phase.duration_weeks}` })
+          // Calculate current week from start_date
+          const currentWeek = phase.start_date
+            ? Math.max(1, Math.ceil((Date.now() - new Date(phase.start_date + 'T00:00:00').getTime()) / (7 * 24 * 60 * 60 * 1000)))
+            : (weekCount ?? 0) + 1
+
+          if (phase.status === 'active') {
+            stats.push({ label: 'Progreso', value: `Semana ${currentWeek} de ${phase.duration_weeks}` })
           } else if (weekCount != null) {
             stats.push({ label: 'Duracion', value: `${weekCount} semanas` })
           }
@@ -305,7 +312,7 @@ export default function JournalPage() {
             statusVariant,
             type: goalLabel(phase.goal),
             detail: phase.status === 'active'
-              ? `Semana ${weekCount ?? 0} de ${phase.duration_weeks}`
+              ? `Semana ${currentWeek} de ${phase.duration_weeks}`
               : `${phase.duration_weeks} semanas`,
             stats,
             opacity: phase.status === 'active' ? 1 : phase.status === 'completed' ? 0.85 : 0.7,
@@ -318,6 +325,11 @@ export default function JournalPage() {
       // Build summary stats
       const totalPhases = phases?.length ?? 0
       const activePhase = phases?.find((p) => p.status === 'active')
+
+      // Set active phase start date for scoping daily logs
+      if (activePhase?.start_date) {
+        setPhaseStartDate(activePhase.start_date)
+      }
       const earliestPhase = phases?.length
         ? phases.reduce((earliest, p) => {
             const d = p.start_date ?? p.created_at
@@ -356,7 +368,8 @@ export default function JournalPage() {
   const fetchDailyLogs = useCallback(async () => {
     try {
       // Check cache first
-      const cachedEntries = getCached<DayEntry[]>('journal:dailylogs')
+      const cacheKey = `journal:dailylogs:${phaseStartDate ?? 'no-phase'}`
+      const cachedEntries = getCached<DayEntry[]>(cacheKey)
       if (cachedEntries) {
         setDayEntries(cachedEntries)
         setLogsLoading(false)
@@ -368,7 +381,21 @@ export default function JournalPage() {
       const { data: { user } } = await supabase.auth.getUser()
       const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
 
-      const days = getLast30Days()
+      // Find the earliest date: phase start or first daily_log, whichever is older
+      let effectiveStart = phaseStartDate
+      const { data: firstLog } = await supabase
+        .from('daily_logs')
+        .select('log_date')
+        .eq('user_id', userId)
+        .order('log_date', { ascending: true })
+        .limit(1)
+      if (firstLog?.[0]?.log_date) {
+        if (!effectiveStart || firstLog[0].log_date < effectiveStart) {
+          effectiveStart = firstLog[0].log_date
+        }
+      }
+
+      const days = getDaysSince(effectiveStart)
       const fromDate = days[days.length - 1]
       const toDate = days[0]
 
@@ -391,13 +418,13 @@ export default function JournalPage() {
       }))
 
       setDayEntries(entries)
-      setCache('journal:dailylogs', entries)
+      setCache(cacheKey, entries)
     } catch (err) {
       console.error('Error fetching daily logs:', err)
     } finally {
       setLogsLoading(false)
     }
-  }, [])
+  }, [phaseStartDate])
 
   useEffect(() => {
     fetchDecisionsData()
@@ -902,9 +929,9 @@ export default function JournalPage() {
             <div className="text-[.77rem] text-gray-400">{phase.type} &middot; {phase.detail}</div>
             <div className="mt-2.5 text-[.84rem] flex flex-col gap-1.5">
               {phase.stats.map((stat) => (
-                <div key={stat.label} className="flex justify-between">
-                  <span className="text-gray-400">{stat.label}</span>
-                  <span className="font-semibold">{stat.value}</span>
+                <div key={stat.label} className="flex justify-between gap-3">
+                  <span className="text-gray-400 shrink-0">{stat.label}</span>
+                  <span className="font-semibold text-right">{stat.value}</span>
                 </div>
               ))}
             </div>

@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { RightPanel } from '@/components/layout/right-panel'
 import { dateToLocal } from '@/lib/date-utils'
+import { computeWeeklyScore } from '@/lib/weekly-score'
+import type { WeeklyScoreData } from '@/lib/weekly-score'
 import type { Milestone } from '@/lib/supabase/types'
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -13,17 +15,6 @@ interface PRRecord {
   weight: number
   reps: number
   date: string
-}
-
-interface WeeklyScoreData {
-  score: number
-  breakdown: {
-    adherencia: number
-    calorias: number
-    proteina: number
-    pasos: number
-    sueno: number
-  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -48,95 +39,35 @@ function formatDate(dateStr: string): string {
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`
 }
 
-// Calculate weekly score from daily logs vs profile targets
-function computeWeeklyScore(
-  logs: { calories: number | null; protein_g: number | null; steps: number | null; sleep_hours: number | null }[],
-  targets: { calorie_target: number | null; protein_target: number | null; step_goal: number | null; sleep_goal: number | null },
-  adherence: { done: number; planned: number } | null,
-): WeeklyScoreData | null {
-  if (logs.length === 0) return null
+// SVG circular progress ring
+function ScoreRingLarge({ score, size = 140 }: { score: number | null; size?: number }) {
+  const strokeWidth = 10
+  const radius = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * radius
+  const progress = score !== null ? Math.min(score, 100) / 100 : 0
+  const dashOffset = circumference * (1 - progress)
 
-  const daysWithData = logs.length
+  const color = score === null ? 'rgba(255,255,255,0.2)'
+    : score >= 80 ? '#34D399' : score >= 60 ? '#60A5FA' : score >= 40 ? '#FBBF24' : '#F87171'
 
-  // Adherence score (0-100) — weight: 30
-  let adherenciaScore = 0
-  if (adherence && adherence.planned > 0) {
-    adherenciaScore = Math.min(Math.round((adherence.done / adherence.planned) * 100), 100)
-  }
-
-  // Calorie score (0-100) — how close to target, penalize over AND under — weight: 20
-  let caloriasScore = 0
-  if (targets.calorie_target) {
-    const cals = logs.filter(l => l.calories != null).map(l => l.calories!)
-    if (cals.length > 0) {
-      const avg = cals.reduce((a, b) => a + b, 0) / cals.length
-      const ratio = avg / targets.calorie_target
-      // Perfect = 1.0, penalize deviation
-      caloriasScore = Math.max(0, Math.round(100 - Math.abs(1 - ratio) * 200))
-    }
-  } else {
-    caloriasScore = 50 // no target set, neutral
-  }
-
-  // Protein score (0-100) — weight: 20
-  let proteinaScore = 0
-  if (targets.protein_target) {
-    const prots = logs.filter(l => l.protein_g != null).map(l => l.protein_g!)
-    if (prots.length > 0) {
-      const avg = prots.reduce((a, b) => a + b, 0) / prots.length
-      const ratio = avg / targets.protein_target
-      proteinaScore = Math.min(Math.round(ratio * 100), 100)
-    }
-  } else {
-    proteinaScore = 50
-  }
-
-  // Steps score (0-100) — weight: 15
-  let pasosScore = 0
-  if (targets.step_goal) {
-    const steps = logs.filter(l => l.steps != null).map(l => l.steps!)
-    if (steps.length > 0) {
-      const avg = steps.reduce((a, b) => a + b, 0) / steps.length
-      const ratio = avg / targets.step_goal
-      pasosScore = Math.min(Math.round(ratio * 100), 100)
-    }
-  } else {
-    pasosScore = 50
-  }
-
-  // Sleep score (0-100) — weight: 15
-  let suenoScore = 0
-  if (targets.sleep_goal) {
-    const sleeps = logs.filter(l => l.sleep_hours != null).map(l => l.sleep_hours!)
-    if (sleeps.length > 0) {
-      const avg = sleeps.reduce((a, b) => a + b, 0) / sleeps.length
-      const ratio = avg / targets.sleep_goal
-      // Perfect = 1.0, penalize under-sleeping more than over
-      suenoScore = ratio >= 1 ? 100 : Math.round(ratio * 100)
-    }
-  } else {
-    suenoScore = 50
-  }
-
-  // Weighted total
-  const score = Math.round(
-    adherenciaScore * 0.30 +
-    caloriasScore * 0.20 +
-    proteinaScore * 0.20 +
-    pasosScore * 0.15 +
-    suenoScore * 0.15
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="block mx-auto">
+      {/* Background ring */}
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none"
+        stroke="rgba(255,255,255,0.15)" strokeWidth={strokeWidth} />
+      {/* Progress ring */}
+      <circle cx={size / 2} cy={size / 2} r={radius} fill="none"
+        stroke={color} strokeWidth={strokeWidth} strokeLinecap="round"
+        strokeDasharray={circumference} strokeDashoffset={dashOffset}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        style={{ transition: 'stroke-dashoffset 0.8s ease' }} />
+      {/* Score text */}
+      <text x="50%" y="50%" dominantBaseline="central" textAnchor="middle"
+        fill="white" fontSize={score !== null ? '2.2rem' : '1.8rem'} fontWeight="800">
+        {score !== null ? score : '- -'}
+      </text>
+    </svg>
   )
-
-  return {
-    score,
-    breakdown: {
-      adherencia: adherenciaScore,
-      calorias: caloriasScore,
-      proteina: proteinaScore,
-      pasos: pasosScore,
-      sueno: suenoScore,
-    },
-  }
 }
 
 // ─── Main component ───────────────────────────────────────────────
@@ -322,13 +253,8 @@ export default function ProgressPage() {
     setMilestones(prev => prev.filter(m => m.id !== id))
   }
 
-  const breakdownLabels: Record<string, string> = {
-    adherencia: 'Gym',
-    calorias: 'Cal',
-    proteina: 'Prot',
-    pasos: 'Pasos',
-    sueno: 'Sueno',
-  }
+  const scoreStatus = weeklyScore?.status === 'completo' ? 'Completo'
+    : weeklyScore?.status === 'parcial' ? 'Parcial' : 'Pendiente'
 
   return (
     <>
@@ -339,88 +265,146 @@ export default function ProgressPage() {
               <div className="bg-gray-200 animate-pulse rounded-[6px] h-7 w-32 mb-2" />
               <div className="bg-gray-200 animate-pulse rounded-[6px] h-4 w-56" />
             </div>
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              {[1, 2].map((i) => (
-                <div key={i} className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)]">
-                  <div className="bg-gray-200 animate-pulse rounded-[6px] h-3 w-24 mb-2" />
-                  <div className="bg-gray-200 animate-pulse rounded-[6px] h-8 w-16" />
-                </div>
-              ))}
-            </div>
-            <div className="bg-card rounded-[var(--radius)] p-[24px_26px] shadow-[var(--shadow)] mb-6">
-              <div className="bg-gray-200 animate-pulse rounded-[6px] h-5 w-32 mb-4" />
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="bg-gray-200 animate-pulse rounded-[6px] h-10 w-full mb-2" />
-              ))}
-            </div>
+            <div className="bg-gray-200 animate-pulse rounded-[var(--radius)] h-48 mb-6" />
+            <div className="bg-gray-200 animate-pulse rounded-[var(--radius)] h-[280px] mb-6" />
           </div>
         ) : (
           <div className="fade-in">
             {/* Header */}
             <div className="mb-7">
               <h1 className="text-[1.6rem] font-extrabold text-gray-900 tracking-tight">Progreso</h1>
-              <p className="text-gray-500 text-[.9rem] mt-1">Adherencia, records y logros personales</p>
+              <p className="text-gray-500 text-[.9rem] mt-1">Tus logros, adherencia y records</p>
             </div>
 
-            {/* Top Cards: Adherence + Weekly Score */}
-            <div className="grid grid-cols-2 gap-4 mb-6 max-sm:grid-cols-1">
-              {/* Gym Adherence */}
-              <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)]">
-                <div className="text-[.78rem] font-semibold text-gray-500 uppercase mb-2">Adherencia al Gym</div>
-                <div className="flex items-baseline gap-2 mb-2">
-                  <span className={`text-[2rem] font-extrabold ${gymAdherence && gymAdherence.percentage >= 100 ? 'text-success' : gymAdherence && gymAdherence.percentage >= 50 ? 'text-primary' : 'text-danger'}`}>
-                    {gymAdherence?.percentage ?? 0}%
-                  </span>
-                  <span className="text-[.88rem] text-gray-400">{gymAdherence?.done ?? 0}/{gymAdherence?.planned ?? 0} esta semana</span>
+            {/* ═══ 1. MILESTONES (prominent, first) ═══ */}
+            <div className="mb-6">
+              <div className="flex justify-between items-center mb-4">
+                <div className="text-[1.15rem] font-extrabold text-gray-800">
+                  Hitos Personales
                 </div>
-                <div className="h-2.5 rounded-lg overflow-hidden bg-gray-100">
-                  <div
-                    className={`h-full rounded-lg transition-all duration-500 ${
-                      gymAdherence && gymAdherence.done >= gymAdherence.planned ? 'bg-success' : gymAdherence && gymAdherence.done > 0 ? 'bg-primary' : 'bg-gray-300'
-                    }`}
-                    style={{ width: `${Math.min(gymAdherence?.percentage ?? 0, 100)}%` }}
-                  />
-                </div>
-                <div className="text-[.75rem] text-gray-400 mt-1.5">
-                  {gymAdherence && gymAdherence.done >= gymAdherence.planned
-                    ? 'Objetivo cumplido!'
-                    : gymAdherence ? `Faltan ${gymAdherence.planned - gymAdherence.done} sesion${gymAdherence.planned - gymAdherence.done > 1 ? 'es' : ''}` : ''}
-                </div>
+                <button
+                  onClick={() => setShowAddMilestone(!showAddMilestone)}
+                  className="text-[.84rem] font-bold text-white bg-primary px-4 py-1.5 rounded-[var(--radius-sm)] cursor-pointer border-none hover:opacity-90 transition-opacity"
+                >
+                  {showAddMilestone ? 'Cancelar' : '+ Nuevo Hito'}
+                </button>
               </div>
 
-              {/* Weekly Score */}
-              <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)]">
-                <div className="text-[.78rem] font-semibold text-gray-500 uppercase mb-2">Puntaje Semanal</div>
-                {weeklyScore ? (
-                  <>
-                    <div className="flex items-baseline gap-2 mb-3">
-                      <span className={`text-[2rem] font-extrabold ${weeklyScore.score >= 80 ? 'text-success' : weeklyScore.score >= 60 ? 'text-primary' : weeklyScore.score >= 40 ? 'text-warning' : 'text-danger'}`}>
-                        {weeklyScore.score}
-                      </span>
-                      <span className="text-[.88rem] text-gray-400">/ 100</span>
+              {showAddMilestone && (
+                <div className="bg-card rounded-[var(--radius)] p-[20px_22px] shadow-[var(--shadow)] mb-4 fade-in border-2 border-primary/20">
+                  <div className="mb-3">
+                    <input
+                      type="text"
+                      value={newTitle}
+                      onChange={(e) => setNewTitle(e.target.value)}
+                      placeholder="Ej: Primera dominada sin asistencia"
+                      className="w-full border border-gray-200 rounded-[var(--radius-sm)] px-3 py-2.5 text-[.92rem] font-semibold outline-none focus:border-primary transition-colors"
+                      autoFocus
+                    />
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto] gap-3 mb-3">
+                    <input
+                      type="text"
+                      value={newDescription}
+                      onChange={(e) => setNewDescription(e.target.value)}
+                      placeholder="Descripcion (opcional)"
+                      className="w-full border border-gray-200 rounded-[var(--radius-sm)] px-3 py-2 text-[.86rem] outline-none focus:border-primary transition-colors"
+                    />
+                    <input
+                      type="date"
+                      value={newDate}
+                      onChange={(e) => setNewDate(e.target.value)}
+                      className="border border-gray-200 rounded-[var(--radius-sm)] px-3 py-2 text-[.86rem] outline-none focus:border-primary"
+                    />
+                  </div>
+                  <button
+                    onClick={saveMilestone}
+                    disabled={!newTitle.trim() || savingMilestone}
+                    className="w-full py-2.5 bg-primary text-white font-semibold text-[.88rem] rounded-[var(--radius-sm)] cursor-pointer border-none hover:opacity-90 transition-opacity disabled:opacity-50"
+                  >
+                    {savingMilestone ? 'Guardando...' : 'Guardar Hito'}
+                  </button>
+                </div>
+              )}
+
+              {milestones.length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  {milestones.map((m) => (
+                    <div key={m.id} className="bg-card rounded-[var(--radius)] p-[16px_20px] shadow-[var(--shadow)] flex items-start gap-3 border-l-4 border-l-primary">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-bold text-[.95rem] text-gray-800">{m.title}</div>
+                        {m.description && (
+                          <div className="text-[.84rem] text-gray-500 mt-1">{m.description}</div>
+                        )}
+                        <div className="text-[.75rem] text-gray-400 mt-1.5">{formatDate(m.milestone_date)}</div>
+                      </div>
+                      <button
+                        onClick={() => deleteMilestone(m.id)}
+                        className="text-gray-300 hover:text-danger text-[1rem] cursor-pointer bg-transparent border-none shrink-0"
+                        title="Eliminar"
+                      >
+                        &times;
+                      </button>
                     </div>
-                    <div className="flex flex-col gap-1.5">
-                      {Object.entries(weeklyScore.breakdown).map(([key, val]) => (
-                        <div key={key} className="flex items-center gap-2">
-                          <span className="text-[.72rem] text-gray-400 w-10">{breakdownLabels[key] ?? key}</span>
-                          <div className="flex-1 h-1.5 rounded-lg overflow-hidden bg-gray-100">
-                            <div
-                              className={`h-full rounded-lg ${val >= 80 ? 'bg-success' : val >= 60 ? 'bg-primary' : val >= 40 ? 'bg-warning' : 'bg-danger'}`}
-                              style={{ width: `${val}%` }}
-                            />
-                          </div>
-                          <span className="text-[.72rem] text-gray-500 font-semibold w-7 text-right">{val}</span>
-                        </div>
-                      ))}
+                  ))}
+                </div>
+              ) : !showAddMilestone ? (
+                <div className="bg-card rounded-[var(--radius)] p-8 shadow-[var(--shadow)] text-center">
+                  <div className="text-[1.5rem] mb-2">{'\uD83C\uDFC6'}</div>
+                  <div className="text-[.95rem] font-semibold text-gray-700 mb-1">Registra tu primer hito</div>
+                  <div className="text-[.84rem] text-gray-400">Primera dominada, gluteos +1cm, nuevo PR...</div>
+                </div>
+              ) : null}
+            </div>
+
+            {/* ═══ 2. WEEKLY SCORE (dark card with ring) ═══ */}
+            <div className="bg-gradient-to-br from-[#0f4d6e] to-[#1a3a4a] rounded-[var(--radius)] p-[28px_26px] shadow-[var(--shadow)] mb-6">
+              <div className="mb-5">
+                <ScoreRingLarge score={weeklyScore?.score ?? null} />
+              </div>
+              <div className="text-center mb-5">
+                <div className="font-extrabold text-[1.15rem] text-white">{scoreStatus}</div>
+                <div className="text-[.84rem] text-white/60">Puntaje Semanal</div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                {(['entrenamiento', 'nutricion', 'pasos', 'sueno'] as const).map((key) => {
+                  const val = weeklyScore?.breakdown[key]
+                  const labels: Record<string, string> = { entrenamiento: 'Entrenamiento', nutricion: 'Nutricion', pasos: 'Pasos', sueno: 'Sueno' }
+                  return (
+                    <div key={key} className="bg-white/10 rounded-[var(--radius-sm)] p-[12px_14px] text-center">
+                      <div className="text-[.78rem] text-white/60 mb-1">{labels[key]}</div>
+                      <div className="font-extrabold text-[1.15rem] text-white">{val !== null ? val : '- -'}</div>
                     </div>
-                  </>
-                ) : (
-                  <div className="text-[.88rem] text-gray-400">Sin datos esta semana</div>
-                )}
+                  )
+                })}
               </div>
             </div>
 
-            {/* Records */}
+            {/* ═══ 3. GYM ADHERENCE ═══ */}
+            <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)] mb-6">
+              <div className="text-[.78rem] font-semibold text-gray-500 uppercase mb-2">Adherencia al Gym</div>
+              <div className="flex items-baseline gap-2 mb-2">
+                <span className={`text-[2rem] font-extrabold ${gymAdherence && gymAdherence.percentage >= 100 ? 'text-success' : gymAdherence && gymAdherence.percentage >= 50 ? 'text-primary' : 'text-danger'}`}>
+                  {gymAdherence?.percentage ?? 0}%
+                </span>
+                <span className="text-[.88rem] text-gray-400">{gymAdherence?.done ?? 0}/{gymAdherence?.planned ?? 0} esta semana</span>
+              </div>
+              <div className="h-2.5 rounded-lg overflow-hidden bg-gray-100">
+                <div
+                  className={`h-full rounded-lg transition-all duration-500 ${
+                    gymAdherence && gymAdherence.done >= gymAdherence.planned ? 'bg-success' : gymAdherence && gymAdherence.done > 0 ? 'bg-primary' : 'bg-gray-300'
+                  }`}
+                  style={{ width: `${Math.min(gymAdherence?.percentage ?? 0, 100)}%` }}
+                />
+              </div>
+              <div className="text-[.75rem] text-gray-400 mt-1.5">
+                {gymAdherence && gymAdherence.done >= gymAdherence.planned
+                  ? 'Objetivo cumplido!'
+                  : gymAdherence && gymAdherence.planned - gymAdherence.done > 0 ? `Faltan ${gymAdherence.planned - gymAdherence.done} sesion${gymAdherence.planned - gymAdherence.done > 1 ? 'es' : ''}` : ''}
+              </div>
+            </div>
+
+            {/* ═══ 4. RECORDS ═══ */}
             <div className="mb-6">
               <div className="text-[1.08rem] font-bold text-gray-800 mb-4 flex items-center gap-2">
                 Records Personales
@@ -453,94 +437,6 @@ export default function ProgressPage() {
                 </div>
               )}
             </div>
-
-            {/* Milestones */}
-            <div className="mb-6">
-              <div className="flex justify-between items-center mb-4">
-                <div className="text-[1.08rem] font-bold text-gray-800">
-                  Hitos Personales
-                </div>
-                <button
-                  onClick={() => setShowAddMilestone(!showAddMilestone)}
-                  className="text-[.82rem] font-semibold text-primary cursor-pointer bg-transparent border-none hover:underline"
-                >
-                  {showAddMilestone ? 'Cancelar' : '+ Nuevo Hito'}
-                </button>
-              </div>
-
-              {/* Add milestone form — simplified, no category */}
-              {showAddMilestone && (
-                <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)] mb-4 fade-in">
-                  <div className="mb-3">
-                    <label className="text-[.77rem] text-gray-400 block mb-1">Titulo</label>
-                    <input
-                      type="text"
-                      value={newTitle}
-                      onChange={(e) => setNewTitle(e.target.value)}
-                      placeholder="Ej: Primera dominada sin asistencia"
-                      className="w-full border border-gray-200 rounded-[var(--radius-sm)] px-3 py-2 text-[.88rem] outline-none focus:border-primary transition-colors"
-                    />
-                  </div>
-                  <div className="grid grid-cols-[1fr_auto] gap-3 mb-3">
-                    <div>
-                      <label className="text-[.77rem] text-gray-400 block mb-1">Descripcion (opcional)</label>
-                      <input
-                        type="text"
-                        value={newDescription}
-                        onChange={(e) => setNewDescription(e.target.value)}
-                        placeholder="Ej: Despues de 3 meses de progresion"
-                        className="w-full border border-gray-200 rounded-[var(--radius-sm)] px-3 py-2 text-[.88rem] outline-none focus:border-primary transition-colors"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[.77rem] text-gray-400 block mb-1">Fecha</label>
-                      <input
-                        type="date"
-                        value={newDate}
-                        onChange={(e) => setNewDate(e.target.value)}
-                        className="w-full border border-gray-200 rounded-[var(--radius-sm)] px-3 py-2 text-[.88rem] outline-none focus:border-primary"
-                      />
-                    </div>
-                  </div>
-                  <button
-                    onClick={saveMilestone}
-                    disabled={!newTitle.trim() || savingMilestone}
-                    className="w-full py-2.5 bg-primary text-white font-semibold text-[.88rem] rounded-[var(--radius-sm)] cursor-pointer border-none hover:opacity-90 transition-opacity disabled:opacity-50"
-                  >
-                    {savingMilestone ? 'Guardando...' : 'Guardar Hito'}
-                  </button>
-                </div>
-              )}
-
-              {/* Milestones list */}
-              {milestones.length > 0 ? (
-                <div className="flex flex-col gap-3">
-                  {milestones.map((m) => (
-                    <div key={m.id} className="bg-card rounded-[var(--radius)] p-[14px_18px] shadow-[var(--shadow)] flex items-start gap-3">
-                      <span className="text-[1.2rem] mt-0.5">{'\uD83C\uDFC6'}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-semibold text-[.92rem] text-gray-800">{m.title}</div>
-                        {m.description && (
-                          <div className="text-[.82rem] text-gray-500 mt-0.5">{m.description}</div>
-                        )}
-                        <div className="text-[.75rem] text-gray-400 mt-1">{formatDate(m.milestone_date)}</div>
-                      </div>
-                      <button
-                        onClick={() => deleteMilestone(m.id)}
-                        className="text-gray-300 hover:text-danger text-[.8rem] cursor-pointer bg-transparent border-none shrink-0 mt-1"
-                        title="Eliminar"
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : !showAddMilestone ? (
-                <div className="bg-card rounded-[var(--radius)] p-6 shadow-[var(--shadow)] text-center text-gray-400 text-[.9rem]">
-                  Registra tus logros personales: primera dominada, medidas, habilidades...
-                </div>
-              ) : null}
-            </div>
           </div>
         )}
       </main>
@@ -558,7 +454,7 @@ export default function ProgressPage() {
 
         <div className="bg-card rounded-[var(--radius)] p-[12px_14px] shadow-[var(--shadow)] mb-3">
           <div className="text-[.77rem] text-gray-400 mb-0.5">Puntaje Semanal</div>
-          <div className={`font-extrabold text-[1.1rem] ${weeklyScore && weeklyScore.score >= 80 ? 'text-success' : 'text-primary'}`}>
+          <div className={`font-extrabold text-[1.1rem] ${weeklyScore?.score != null && weeklyScore.score >= 80 ? 'text-success' : 'text-primary'}`}>
             {weeklyScore?.score ?? '--'}
           </div>
         </div>
@@ -568,7 +464,6 @@ export default function ProgressPage() {
           <div className="font-extrabold text-[1.1rem] text-primary">{prRecords.length}</div>
         </div>
 
-        {/* Recent milestones in sidebar */}
         <div className="font-bold text-base text-gray-800 mb-[14px]">Ultimos Hitos</div>
         <div className="flex flex-col gap-2.5">
           {milestones.length > 0 ? (

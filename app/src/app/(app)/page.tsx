@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/client'
 import { getUserId } from '@/lib/supabase/auth-cache'
 import { getCached, setCache } from '@/lib/cache'
 import { dateToLocal, parseLocalDate } from '@/lib/date-utils'
+import { computeWeeklyScore } from '@/lib/weekly-score'
 import type { Insight } from '@/lib/supabase/types'
 
 const allDays = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
@@ -31,9 +32,12 @@ export default function DashboardPage() {
   const { profile } = useProfile()
   const weekStartDay = profile?.week_start_day ?? 'saturday'
   const { phase, loading: phaseLoading } = useActivePhase()
+  const [tableWeekOffset, setTableWeekOffset] = useState(0)
   const { data: weeklyData, loading: weeklyLoading } = useWeeklyData(phase?.id, weekStartDay)
+  const { data: tableWeekData } = useWeeklyData(tableWeekOffset !== 0 ? phase?.id : undefined, weekStartDay, tableWeekOffset)
   const [insights, setInsights] = useState<Insight[]>([])
   const [recentWorkouts, setRecentWorkouts] = useState<{ id: string; session_date: string; notes: string | null; duration_minutes: number | null; total_volume_kg: number | null }[]>([])
+  const [liveScore, setLiveScore] = useState<import('@/lib/weekly-score').WeeklyScoreData | null>(null)
   const [, setSeeding] = useState(false)
   const [, setSeedDone] = useState(false)
   const [showChart, setShowChart] = useState(false)
@@ -103,6 +107,48 @@ export default function DashboardPage() {
     fetchRecentWorkouts()
   }, [fetchRecentWorkouts])
 
+  // Compute live weekly score from daily_logs + sessions
+  const fetchLiveScore = useCallback(async () => {
+    try {
+      const supabase = createClient()
+      const userId = await getUserId()
+      const ws = profile?.week_start_day ?? 'saturday'
+      const trainingDays = profile?.training_days_per_week ?? 3
+      const thisWeekStart = getWeekStartDate(new Date(), ws)
+
+      const [{ data: weekLogs }, { data: weekSessions }] = await Promise.all([
+        supabase
+          .from('daily_logs')
+          .select('calories, protein_g, steps, sleep_hours')
+          .eq('user_id', userId)
+          .gte('log_date', thisWeekStart),
+        supabase
+          .from('executed_sessions')
+          .select('id')
+          .eq('user_id', userId)
+          .gte('session_date', thisWeekStart),
+      ])
+
+      const scoreData = computeWeeklyScore(
+        weekLogs ?? [],
+        {
+          calorie_target: profile?.calorie_target ?? null,
+          protein_target: profile?.protein_target ?? null,
+          step_goal: profile?.step_goal ?? null,
+          sleep_goal: profile?.sleep_goal ?? null,
+        },
+        { done: weekSessions?.length ?? 0, planned: trainingDays },
+      )
+      setLiveScore(scoreData)
+    } catch {
+      // ignore
+    }
+  }, [profile])
+
+  useEffect(() => {
+    if (profile) fetchLiveScore()
+  }, [profile, fetchLiveScore])
+
   async function handleSeed() {
     setSeeding(true)
     try {
@@ -155,24 +201,44 @@ export default function DashboardPage() {
   const logCount = logs.length
   const phaseProgress = phase ? Math.round(((weekNumber - 1) / totalWeeks) * 100) : 0
 
-  // Build daily table
+  // Build daily table (supports week navigation)
+  const tableLogs = tableWeekOffset !== 0 ? (tableWeekData?.logs ?? []) : logs
+  const tableAverages = tableWeekOffset !== 0 ? tableWeekData?.averages : averages
+  const tableBaseDate = new Date()
+  if (tableWeekOffset !== 0) tableBaseDate.setDate(tableBaseDate.getDate() + tableWeekOffset * 7)
+  const tableWeekStart = getWeekStartDate(tableBaseDate, weekStartDay)
+
   const startIdx = weekDayMap[weekStartDay] ?? 6
   const dayLabels = Array.from({ length: 7 }, (_, i) => allDays[(startIdx + i) % 7])
-  const logsByDay: Record<string, typeof logs[0] | null> = {}
-  if (weekStart) {
+  const logsByDay: Record<string, typeof tableLogs[0] | null> = {}
+  if (tableWeekStart) {
     for (let i = 0; i < 7; i++) {
-      const d = parseLocalDate(weekStart)
+      const d = parseLocalDate(tableWeekStart)
       d.setDate(d.getDate() + i)
       const key = dateToLocal(d)
-      logsByDay[dayLabels[i]] = logs.find((l) => l.log_date === key) ?? null
+      logsByDay[dayLabels[i]] = tableLogs.find((l) => l.log_date === key) ?? null
     }
   }
 
+  // Format table week range for display
+  const tableWeekEnd = parseLocalDate(tableWeekStart)
+  tableWeekEnd.setDate(tableWeekEnd.getDate() + 6)
+  const formatShortDate = (dateStr: string) => {
+    const d = parseLocalDate(dateStr)
+    return `${d.getDate()}/${d.getMonth() + 1}`
+  }
+  const tableWeekLabel = `${formatShortDate(tableWeekStart)} – ${formatShortDate(dateToLocal(tableWeekEnd))}`
+
   const formatSteps = (s: number | null) => s ? `${(s / 1000).toFixed(1)}k` : null
 
-  // Score data
-  const score = checkin?.weekly_score ?? null
-  const scoreBreakdown = checkin?.score_breakdown as Record<string, number> | null
+  // Score data (live computation)
+  const score = liveScore?.score ?? null
+  const scoreBreakdown: Record<string, number | null> | null = liveScore ? {
+    training: liveScore.breakdown.entrenamiento,
+    nutrition: liveScore.breakdown.nutricion,
+    steps: liveScore.breakdown.pasos,
+    sleep: liveScore.breakdown.sueno,
+  } : null
 
   // Top insight
   const topInsight = insights.find((i) => i.severity === 'warning') ?? insights[0] ?? null
@@ -378,18 +444,42 @@ export default function DashboardPage() {
         >
           <div className="flex justify-between items-center mb-2.5">
             <div className="font-bold text-[1.08rem] text-gray-800 flex items-center gap-2">
-              {'\uD83D\uDCCA'} Registros Diarios de la Semana
+              {'\uD83D\uDCCA'} Registros Diarios
             </div>
-            <button
-              onClick={() => setShowChart(!showChart)}
-              className={`py-1.5 px-3 rounded-[var(--radius-xs)] text-[.78rem] font-semibold cursor-pointer border-[1.5px] transition-all duration-200 ${
-                showChart
-                  ? 'bg-primary text-white border-primary'
-                  : 'bg-transparent text-gray-500 border-gray-200 hover:border-primary hover:text-primary'
-              }`}
-            >
-              {showChart ? '📋 Tabla' : '📈 Grafico'}
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setTableWeekOffset(tableWeekOffset - 1)}
+                  className="w-7 h-7 flex items-center justify-center rounded-full border-[1.5px] border-gray-200 text-gray-500 hover:border-primary hover:text-primary cursor-pointer transition-all duration-200 text-[.8rem]"
+                >
+                  ‹
+                </button>
+                <span className="text-[.75rem] text-gray-500 font-medium min-w-[90px] text-center">
+                  {tableWeekOffset === 0 ? 'Esta semana' : tableWeekLabel}
+                </span>
+                <button
+                  onClick={() => setTableWeekOffset(tableWeekOffset + 1)}
+                  disabled={tableWeekOffset >= 0}
+                  className={`w-7 h-7 flex items-center justify-center rounded-full border-[1.5px] cursor-pointer transition-all duration-200 text-[.8rem] ${
+                    tableWeekOffset >= 0
+                      ? 'border-gray-100 text-gray-300 cursor-not-allowed'
+                      : 'border-gray-200 text-gray-500 hover:border-primary hover:text-primary'
+                  }`}
+                >
+                  ›
+                </button>
+              </div>
+              <button
+                onClick={() => setShowChart(!showChart)}
+                className={`py-1.5 px-3 rounded-[var(--radius-xs)] text-[.78rem] font-semibold cursor-pointer border-[1.5px] transition-all duration-200 ${
+                  showChart
+                    ? 'bg-primary text-white border-primary'
+                    : 'bg-transparent text-gray-500 border-gray-200 hover:border-primary hover:text-primary'
+                }`}
+              >
+                {showChart ? '📋 Tabla' : '📈 Grafico'}
+              </button>
+            </div>
           </div>
 
           {!showChart ? (
@@ -410,49 +500,49 @@ export default function DashboardPage() {
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.calories ?? '\u2014'}</td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_calories ?? '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_calories ?? '\u2014'}</td>
                 </tr>
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Prot</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.protein_g ?? '\u2014'}</td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_protein ? `${averages.avg_protein}g` : '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_protein ? `${tableAverages.avg_protein}g` : '\u2014'}</td>
                 </tr>
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Pasos</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{formatSteps(logsByDay[d]?.steps ?? null) ?? '\u2014'}</td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{formatSteps(averages?.avg_steps ?? null) ?? '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{formatSteps(tableAverages?.avg_steps ?? null) ?? '\u2014'}</td>
                 </tr>
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Sueno</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.sleep_hours ?? '\u2014'}</td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_sleep_hours ? `${averages.avg_sleep_hours}h` : '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_sleep_hours ? `${tableAverages.avg_sleep_hours}h` : '\u2014'}</td>
                 </tr>
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Energia</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.energy ?? '\u2014'}</td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_energy ?? '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_energy ?? '\u2014'}</td>
                 </tr>
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Hambre</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.hunger ?? '\u2014'}</td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_hunger ?? '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_hunger ?? '\u2014'}</td>
                 </tr>
                 <tr>
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Fatiga</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.fatigue_level ?? '\u2014'}</td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{averages?.avg_fatigue ?? '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_fatigue ?? '\u2014'}</td>
                 </tr>
               </tbody>
             </table>

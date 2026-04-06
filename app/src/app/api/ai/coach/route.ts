@@ -20,6 +20,7 @@ interface CoachRequest {
 
 interface CoachHighlight {
   type: 'pr' | 'warning' | 'insight' | 'milestone'
+  severity: 'action' | 'warning' | 'info'
   title: string
   body: string
 }
@@ -41,43 +42,32 @@ interface CoachResponse {
 // ─── Data gathering ───────────────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function gatherUserData(supabase: any, userId: string) {
-  const now = new Date()
-  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  const fourWeeksAgo = new Date(now.getTime() - 28 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  // First get the active phase to scope all queries
+  const [profileResult, activePhaseResult] = await Promise.all([
+    supabase.from('profiles').select('*').eq('id', userId).single(),
+    supabase.from('phases').select('*').eq('user_id', userId).eq('status', 'active').single(),
+  ])
 
-  // Run all queries in parallel
+  const phase = activePhaseResult.data
+  // Use phase start_date as the data window, fallback to 2 weeks
+  const phaseStart = phase?.start_date ?? new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+  // Run remaining queries in parallel, scoped to phase
   const [
-    profileResult,
-    activePhaseResult,
     dailyLogsResult,
     executedSessionsResult,
     weeklyCheckinsResult,
     memoriesResult,
   ] = await Promise.all([
-    // Profile
-    supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single(),
-
-    // Active phase
-    supabase
-      .from('phases')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('status', 'active')
-      .single(),
-
-    // Daily logs (last 2 weeks)
+    // Daily logs since phase start
     supabase
       .from('daily_logs')
       .select('*')
       .eq('user_id', userId)
-      .gte('log_date', twoWeeksAgo)
+      .gte('log_date', phaseStart)
       .order('log_date', { ascending: false }),
 
-    // Executed sessions with exercises and sets (last 4 weeks)
+    // Executed sessions since phase start
     supabase
       .from('executed_sessions')
       .select(`
@@ -89,7 +79,7 @@ async function gatherUserData(supabase: any, userId: string) {
         )
       `)
       .eq('user_id', userId)
-      .gte('session_date', fourWeeksAgo)
+      .gte('session_date', phaseStart)
       .order('session_date', { ascending: false }),
 
     // Weekly checkins (last 8)
@@ -130,7 +120,7 @@ async function gatherUserData(supabase: any, userId: string) {
 
   return {
     profile: profileResult.data,
-    activePhase: activePhaseResult.data,
+    activePhase: phase,
     dailyLogs: dailyLogsResult.data ?? [],
     executedSessions: executedSessionsResult.data ?? [],
     routines: routines ?? [],
@@ -155,22 +145,28 @@ function buildSystemPrompt(
     }
   }
 
-  // Calculate executed sets count (last 2 weeks to match adherence window)
-  const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  const recentSessions = executedSessions.filter((s: any) => s.session_date >= twoWeeksAgo)
+  // Calculate adherence scoped to the active phase
+  const phaseStartDate = activePhase?.start_date ?? null
+  const daysSincePhaseStart = phaseStartDate
+    ? Math.max(1, Math.ceil((Date.now() - new Date(phaseStartDate + 'T00:00:00').getTime()) / (1000 * 60 * 60 * 24)))
+    : 14
+  const weeksSincePhaseStart = Math.max(1, daysSincePhaseStart / 7)
+
+  // All sessions are already scoped to phase start by gatherUserData
   let totalExecutedSets = 0
-  for (const session of recentSessions) {
+  for (const session of executedSessions) {
     for (const ex of (session as any).executed_exercises ?? []) {
       totalExecutedSets += (ex.executed_sets ?? []).length
     }
   }
 
-  // Calculate expected planned sets for 2 weeks
   const frequency = activePhase?.frequency ?? profile?.training_days_per_week ?? 0
+  const expectedSessions = Math.round(frequency * weeksSincePhaseStart)
+  const actualSessions = executedSessions.length
   const plannedSetsPerWeek = frequency > 0 && routines.length > 0
     ? totalPlannedSets * (frequency / routines.length)
     : 0
-  const plannedSetsForPeriod = Math.round(plannedSetsPerWeek * 2)
+  const plannedSetsForPeriod = Math.round(plannedSetsPerWeek * weeksSincePhaseStart)
 
   // Find PRs per exercise (max weight)
   const prMap: Record<string, { weight: number; reps: number; date: string }> = {}
@@ -232,12 +228,25 @@ function buildSystemPrompt(
 
 Tu rol es analizar los datos del usuario y dar un análisis tipo "${analysisType}". Enfocate en PATRONES, no solo datos sueltos. Cruzá información entre nutrición, entrenamiento, sueño y energía para encontrar correlaciones.
 
+REGLAS FUNDAMENTALES DE COACHING (OBLIGATORIAS, NO NEGOCIABLES):
+1. PROHIBIDO mencionar calorías de un día individual como problema. SIEMPRE usá PROMEDIOS SEMANALES. Ejemplo: si un día comió 2500kcal pero el promedio semanal es 2100kcal, NO lo menciones. NUNCA digas "un día de X calorías". Solo hablá del promedio.
+2. PROHIBIDO ser perfeccionista. La vida tiene cumpleaños, eventos, salidas — eso es NORMAL. El enfoque es SOSTENIBILIDAD y TENDENCIAS SEMANALES.
+3. Celebrá la consistencia a lo largo de la semana, no la adherencia de un solo día.
+4. Sé proactivo: detectá patrones que la persona quizás no ve. Cruzá datos de sueño, energía, nutrición y rendimiento.
+5. Tanto las cosas positivas como las que hay que ajustar son importantes. No solo señales lo malo.
+6. USÁS LOS DATOS REALES que te paso abajo. Si dice que hay N sesiones, hay N sesiones. No inventes datos.
+
+SEVERIDAD DE INSIGHTS:
+- "action" (rojo): Requiere atención inmediata (ej: 3+ semanas estancado, adherencia <50%, señales de sobreentrenamiento)
+- "warning" (amarillo): Algo a monitorear (ej: promedio semanal de proteína bajo, sueño irregular)
+- "info" (verde): Observaciones positivas, patrones buenos, hitos alcanzados
+
 IMPORTANTE: Respondé SOLAMENTE con un JSON válido (sin markdown, sin backticks, solo el JSON puro) con esta estructura exacta:
 {
-  "summary": "evaluación general breve (2-3 oraciones)",
-  "highlights": [{ "type": "pr|warning|insight|milestone", "title": "...", "body": "..." }],
+  "summary": "evaluación general breve (2-3 oraciones, enfoque semanal)",
+  "highlights": [{ "type": "pr|warning|insight|milestone", "severity": "action|warning|info", "title": "...", "body": "..." }],
   "adherence": { "percentage": <número>, "detail": "explicación breve" },
-  "patterns": ["patrón 1", "patrón 2"],
+  "patterns": ["patrón 1 (basado en promedios semanales)", "patrón 2"],
   "suggestions": ["sugerencia específica y accionable 1", "sugerencia 2"],
   "newMemories": [{ "type": "pattern|observation|milestone", "content": "algo importante para recordar para futuras sesiones" }]
 }`)
@@ -288,15 +297,39 @@ Targets nutricionales de fase: ${activePhase.calorie_target ?? '?'} kcal, ${acti
   }
 
   // Adherence summary
-  parts.push(`\n─── ADHERENCIA (últimas 2 semanas) ───
-Sesiones ejecutadas: ${recentSessions.length}
+  parts.push(`\n─── ADHERENCIA (desde inicio de fase: ${daysSincePhaseStart} días) ───
+IMPORTANTE: La fase empezó hace ${daysSincePhaseStart} días. Evaluá la adherencia en proporción a ese tiempo, no a 14 días.
+Sesiones de gym realizadas: ${actualSessions}
+Sesiones de gym esperadas (${frequency}/sem × ${weeksSincePhaseStart.toFixed(1)} semanas): ${expectedSessions}
+Adherencia gym: ${expectedSessions > 0 ? Math.round((actualSessions / expectedSessions) * 100) : '?'}%
 Sets ejecutados: ${totalExecutedSets}
-Sets planificados (estimado para 2 semanas): ${plannedSetsForPeriod}
-Adherencia estimada: ${plannedSetsForPeriod > 0 ? Math.round((totalExecutedSets / plannedSetsForPeriod) * 100) : '?'}%`)
+Sets planificados (estimado): ${plannedSetsForPeriod}
+Días de la fase transcurridos: ${daysSincePhaseStart} de ${(activePhase?.duration_weeks ?? 0) * 7} totales`)
 
-  // Daily logs
+  // Daily logs + weekly averages
   if (dailyLogs.length > 0) {
-    parts.push(`\n─── LOGS DIARIOS (últimos 14 días, ${dailyLogs.length} registros) ───`)
+    // Calculate weekly averages (the KEY metric for coaching)
+    const logsWithCal = dailyLogs.filter((l: any) => l.calories != null)
+    const logsWithProt = dailyLogs.filter((l: any) => l.protein_g != null)
+    const logsWithSteps = dailyLogs.filter((l: any) => l.steps != null)
+    const logsWithSleep = dailyLogs.filter((l: any) => l.sleep_hours != null)
+    const logsWithEnergy = dailyLogs.filter((l: any) => l.energy != null)
+
+    const avgCal = logsWithCal.length > 0 ? Math.round(logsWithCal.reduce((a: number, l: any) => a + l.calories, 0) / logsWithCal.length) : null
+    const avgProt = logsWithProt.length > 0 ? Math.round(logsWithProt.reduce((a: number, l: any) => a + l.protein_g, 0) / logsWithProt.length) : null
+    const avgSteps = logsWithSteps.length > 0 ? Math.round(logsWithSteps.reduce((a: number, l: any) => a + l.steps, 0) / logsWithSteps.length) : null
+    const avgSleep = logsWithSleep.length > 0 ? +(logsWithSleep.reduce((a: number, l: any) => a + l.sleep_hours, 0) / logsWithSleep.length).toFixed(1) : null
+    const avgEnergy = logsWithEnergy.length > 0 ? +(logsWithEnergy.reduce((a: number, l: any) => a + l.energy, 0) / logsWithEnergy.length).toFixed(1) : null
+
+    parts.push(`\n─── PROMEDIOS SEMANALES (lo que importa para evaluar) ───
+Calorías promedio: ${avgCal ?? '?'} kcal (objetivo: ${profile?.calorie_target ?? activePhase?.calorie_target ?? '?'})
+Proteína promedio: ${avgProt ?? '?'}g (objetivo: ${profile?.protein_target ?? activePhase?.protein_target ?? '?'}g)
+Pasos promedio: ${avgSteps ?? '?'} (objetivo: ${profile?.step_goal ?? '?'})
+Sueño promedio: ${avgSleep ?? '?'}h (objetivo: ${profile?.sleep_goal ?? '?'}h)
+Energía promedio: ${avgEnergy ?? '?'}/5
+Días registrados: ${dailyLogs.length} de ${daysSincePhaseStart} desde inicio de fase`)
+
+    parts.push(`\n─── LOGS DIARIOS (detalle, ${dailyLogs.length} registros) ───`)
     for (const log of dailyLogs) {
       const l = log as any
       parts.push(`${l.log_date}: ${l.calories ?? '?'}kcal, ${l.protein_g ?? '?'}g prot, ${l.carbs_g ?? '?'}g carbs, ${l.fat_g ?? '?'}g grasa | Pasos: ${l.steps ?? '?'} | Sueño: ${l.sleep_hours ?? '?'}h | Energía: ${l.energy ?? '?'}/5 | Hambre: ${l.hunger ?? '?'}/5 | Fatiga: ${l.fatigue_level ?? '?'}/5${l.notes ? ` | Nota: ${l.notes}` : ''}`)
@@ -413,6 +446,15 @@ export async function POST(request: NextRequest) {
 
     // 1. Gather all user data
     const userData = await gatherUserData(supabase, userId)
+
+    // Debug logging
+    console.log('[Coach API] userId:', userId)
+    console.log('[Coach API] activePhase:', userData.activePhase?.id, 'start_date:', userData.activePhase?.start_date)
+    console.log('[Coach API] executedSessions count:', userData.executedSessions.length)
+    console.log('[Coach API] dailyLogs count:', userData.dailyLogs.length)
+    if (userData.executedSessions.length > 0) {
+      console.log('[Coach API] session dates:', userData.executedSessions.map((s: any) => s.session_date))
+    }
 
     if (!userData.profile) {
       return NextResponse.json(

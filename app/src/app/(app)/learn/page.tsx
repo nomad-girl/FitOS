@@ -66,6 +66,16 @@ function autoSuggestTags(text: string): string[] {
   return TAG_SUGGESTIONS.filter((tag) => lower.includes(tag.toLowerCase()))
 }
 
+// Extract video thumbnail URL from common platforms
+function getThumbnailUrl(url: string | null): string | null {
+  if (!url) return null
+  // YouTube: youtube.com/watch?v=ID or youtu.be/ID
+  const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/)
+  if (ytMatch) return `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`
+  // Vimeo: vimeo.com/ID — no easy static thumbnail
+  return null
+}
+
 export default function LearnPage() {
   const [filter, setFilter] = useState<ResourceFilter>('all')
   const [search, setSearch] = useState('')
@@ -78,7 +88,11 @@ export default function LearnPage() {
   const [addSource, setAddSource] = useState('')
   const [addContent, setAddContent] = useState('')
   const [addTags, setAddTags] = useState<string[]>([])
+  const [addMuscleGroups, setAddMuscleGroups] = useState<string[]>([])
+  const [addExercises, setAddExercises] = useState<string[]>([])
   const [addSaving, setAddSaving] = useState(false)
+  const [aiAnalyzing, setAiAnalyzing] = useState(false)
+  const [aiDone, setAiDone] = useState(false)
 
   async function fetchResources() {
     // Check cache first
@@ -110,21 +124,64 @@ export default function LearnPage() {
     fetchResources()
   }, [])
 
-  function handleUrlChange(url: string) {
+  function handleUrlInput(url: string) {
     setAddUrl(url)
     if (url) {
       setAddType(detectTypeFromUrl(url))
       const src = detectSourceFromUrl(url)
       if (src) setAddSource(src)
+    }
+  }
+
+  async function analyzeWithAI(url: string) {
+    if (!url.startsWith('http') || aiAnalyzing) return
+    setAiAnalyzing(true)
+    setAiDone(false)
+    try {
+      const res = await fetch('/api/ai/analyze-resource', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, title: addTitle }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.title) setAddTitle(data.title)
+        if (data.summary) setAddContent(data.summary)
+        if (data.resource_type) setAddType(data.resource_type)
+        if (data.source) setAddSource(data.source)
+        if (data.tags?.length) setAddTags(data.tags)
+        if (data.muscle_groups?.length) setAddMuscleGroups(data.muscle_groups)
+        if (data.related_exercises?.length) setAddExercises(data.related_exercises)
+        setAiDone(true)
+      }
+    } catch (err) {
+      console.error('AI analyze error:', err)
       const suggested = autoSuggestTags(url)
       if (suggested.length > 0) setAddTags((prev) => [...new Set([...prev, ...suggested])])
+    } finally {
+      setAiAnalyzing(false)
+    }
+  }
+
+  // Trigger AI on paste — prevent default to avoid duplicate URL
+  function handleUrlPaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const pasted = e.clipboardData.getData('text').trim()
+    if (pasted.startsWith('http')) {
+      e.preventDefault()
+      setAddUrl(pasted)
+      setAddType(detectTypeFromUrl(pasted))
+      const src = detectSourceFromUrl(pasted)
+      if (src) setAddSource(src)
+      analyzeWithAI(pasted)
     }
   }
 
   function handleTitleChange(title: string) {
     setAddTitle(title)
-    const suggested = autoSuggestTags(title)
-    if (suggested.length > 0) setAddTags((prev) => [...new Set([...prev, ...suggested])])
+    if (!aiDone) {
+      const suggested = autoSuggestTags(title)
+      if (suggested.length > 0) setAddTags((prev) => [...new Set([...prev, ...suggested])])
+    }
   }
 
   function toggleTag(tag: string) {
@@ -139,6 +196,9 @@ export default function LearnPage() {
       const { data: { user } } = await supabase.auth.getUser()
       const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
 
+      // Combine all tags: regular + muscle groups + exercises
+      const allTags = [...new Set([...addTags, ...addMuscleGroups, ...addExercises])]
+
       const { error } = await supabase.from('learn_resources').insert({
         user_id: userId,
         title: addTitle.trim(),
@@ -146,7 +206,7 @@ export default function LearnPage() {
         source: addSource || null,
         url: addUrl || null,
         content: addContent || null,
-        tags: addTags,
+        tags: allTags,
         linked_exercise_ids: [],
         is_pinned: false,
       })
@@ -156,7 +216,8 @@ export default function LearnPage() {
       // Reset form and invalidate cache
       invalidateCache('learn:')
       setAddUrl(''); setAddTitle(''); setAddType('video'); setAddSource('')
-      setAddContent(''); setAddTags([]); setShowAddForm(false)
+      setAddContent(''); setAddTags([]); setAddMuscleGroups([]); setAddExercises([])
+      setAiDone(false); setShowAddForm(false)
       fetchResources()
     } catch { alert('Error guardando recurso') }
     finally { setAddSaving(false) }
@@ -180,7 +241,13 @@ export default function LearnPage() {
   const filteredResources = useMemo(() => {
     return resources.filter((r) => {
       if (filter !== 'all' && r.resource_type !== filter) return false
-      if (search && !r.title.toLowerCase().includes(search.toLowerCase())) return false
+      if (search) {
+        const q = search.toLowerCase()
+        const inTitle = r.title.toLowerCase().includes(q)
+        const inTags = r.tags.some((t) => t.toLowerCase().includes(q))
+        const inContent = r.content?.toLowerCase().includes(q)
+        if (!inTitle && !inTags && !inContent) return false
+      }
       return true
     })
   }, [resources, filter, search])
@@ -239,23 +306,57 @@ export default function LearnPage() {
         {/* Add Resource Form */}
         {showAddForm && (
           <div className="bg-card rounded-[var(--radius)] p-[24px_26px] shadow-[var(--shadow-md)] mb-6 fade-in border-[1.5px] border-primary/20">
-            <div className="font-bold text-[1rem] text-gray-800 mb-3">Nuevo Recurso</div>
-            <p className="text-[.8rem] text-gray-400 mb-4">Pega un link de Instagram, YouTube, etc. y se auto-detecta el tipo y fuente.</p>
+            <div className="font-bold text-[1rem] text-gray-800 mb-1">Nuevo Recurso</div>
+            <p className="text-[.8rem] text-gray-400 mb-4">Pega un link y la IA lo analiza y taguea automaticamente.</p>
 
+            {/* URL input - the magic link */}
             <div className="mb-3">
-              <label className="text-[.77rem] text-gray-400 block mb-1">URL (opcional)</label>
-              <input
-                type="url"
-                value={addUrl}
-                onChange={(e) => handleUrlChange(e.target.value)}
-                placeholder="https://instagram.com/reel/... o youtube.com/watch?v=..."
-                className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.9rem] focus:border-primary focus:outline-none"
-              />
+              <label className="text-[.77rem] text-gray-400 block mb-1">Link</label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type="url"
+                    value={addUrl}
+                    onChange={(e) => handleUrlInput(e.target.value)}
+                    onPaste={handleUrlPaste}
+                    placeholder="Pega un link aca..."
+                    className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.9rem] focus:border-primary focus:outline-none pr-10"
+                  />
+                  {aiAnalyzing && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <span className="inline-block w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full" style={{ animation: 'spin 1s linear infinite' }} />
+                    </span>
+                  )}
+                  {aiDone && !aiAnalyzing && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-success text-[.9rem]">{'\u2705'}</span>
+                  )}
+                </div>
+                {addUrl.startsWith('http') && !aiDone && !aiAnalyzing && (
+                  <button
+                    type="button"
+                    onClick={() => analyzeWithAI(addUrl)}
+                    className="py-2.5 px-4 rounded-[var(--radius-sm)] font-semibold text-[.84rem] bg-gradient-to-br from-primary to-accent text-white cursor-pointer border-none whitespace-nowrap"
+                  >
+                    Analizar
+                  </button>
+                )}
+              </div>
+              {aiAnalyzing && (
+                <div className="text-[.75rem] text-primary mt-1 flex items-center gap-1.5">
+                  Analizando con IA...
+                </div>
+              )}
+              {!aiAnalyzing && !aiDone && addUrl && (
+                <div className="text-[.72rem] text-gray-400 mt-1">
+                  Pega un link y se analiza automaticamente, o toca &quot;Analizar&quot;
+                </div>
+              )}
             </div>
 
+            {/* AI results or manual form */}
             <div className="grid grid-cols-2 gap-3 mb-3 max-sm:grid-cols-1">
               <div>
-                <label className="text-[.77rem] text-gray-400 block mb-1">Titulo</label>
+                <label className="text-[.77rem] text-gray-400 block mb-1">Titulo {aiDone && <span className="text-success text-[.65rem]">IA</span>}</label>
                 <input
                   type="text"
                   value={addTitle}
@@ -292,7 +393,7 @@ export default function LearnPage() {
             </div>
 
             <div className="mb-3">
-              <label className="text-[.77rem] text-gray-400 block mb-1">Notas (opcional)</label>
+              <label className="text-[.77rem] text-gray-400 block mb-1">Resumen {aiDone && <span className="text-success text-[.65rem]">IA</span>}</label>
               <textarea
                 value={addContent}
                 onChange={(e) => setAddContent(e.target.value)}
@@ -302,19 +403,31 @@ export default function LearnPage() {
               />
             </div>
 
-            <div className="mb-4">
-              <label className="text-[.77rem] text-gray-400 block mb-1.5">Tags {addTags.length > 0 && <span className="text-primary">({addTags.length} seleccionados)</span>}</label>
+            {/* Tags - AI generated + manual */}
+            <div className="mb-3">
+              <label className="text-[.77rem] text-gray-400 block mb-1.5">
+                Tags {addTags.length > 0 && <span className="text-primary">({addTags.length})</span>}
+                {aiDone && <span className="text-success text-[.65rem] ml-1">IA</span>}
+              </label>
               <div className="flex flex-wrap gap-1.5">
-                {TAG_SUGGESTIONS.map((tag) => (
+                {/* Show AI-generated tags first */}
+                {addTags.map((tag) => (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => setAddTags((prev) => prev.filter((t) => t !== tag))}
+                    className="py-[5px] px-3 rounded-full border-[1.5px] text-[.78rem] font-medium cursor-pointer transition-all duration-200 bg-primary-light border-primary text-primary-dark"
+                  >
+                    {tag} &times;
+                  </button>
+                ))}
+                {/* Show suggestions that aren't already selected */}
+                {TAG_SUGGESTIONS.filter((t) => !addTags.includes(t)).slice(0, 10).map((tag) => (
                   <button
                     key={tag}
                     type="button"
                     onClick={() => toggleTag(tag)}
-                    className={`py-[5px] px-3 rounded-full border-[1.5px] text-[.78rem] font-medium cursor-pointer transition-all duration-200 ${
-                      addTags.includes(tag)
-                        ? 'bg-primary-light border-primary text-primary-dark'
-                        : 'border-gray-200 text-gray-500 hover:border-primary hover:text-primary'
-                    }`}
+                    className="py-[5px] px-3 rounded-full border-[1.5px] text-[.78rem] font-medium cursor-pointer transition-all duration-200 border-gray-200 text-gray-400 hover:border-primary hover:text-primary"
                   >
                     {tag}
                   </button>
@@ -322,9 +435,51 @@ export default function LearnPage() {
               </div>
             </div>
 
+            {/* Muscle Groups - AI detected */}
+            {addMuscleGroups.length > 0 && (
+              <div className="mb-3">
+                <label className="text-[.77rem] text-gray-400 block mb-1.5">
+                  Grupos Musculares <span className="text-success text-[.65rem]">IA</span>
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {addMuscleGroups.map((mg) => (
+                    <button
+                      key={mg}
+                      type="button"
+                      onClick={() => setAddMuscleGroups((prev) => prev.filter((m) => m !== mg))}
+                      className="py-[5px] px-3 rounded-full border-[1.5px] text-[.78rem] font-medium cursor-pointer bg-accent/10 border-accent/40 text-accent-dark"
+                    >
+                      {mg} &times;
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Related Exercises - AI detected */}
+            {addExercises.length > 0 && (
+              <div className="mb-3">
+                <label className="text-[.77rem] text-gray-400 block mb-1.5">
+                  Ejercicios Relacionados <span className="text-success text-[.65rem]">IA</span>
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {addExercises.map((ex) => (
+                    <button
+                      key={ex}
+                      type="button"
+                      onClick={() => setAddExercises((prev) => prev.filter((e) => e !== ex))}
+                      className="py-[5px] px-3 rounded-full border-[1.5px] text-[.78rem] font-medium cursor-pointer bg-success-light border-success/40 text-[#065F46]"
+                    >
+                      {ex} &times;
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <button
               onClick={handleAddResource}
-              disabled={addSaving || !addTitle.trim()}
+              disabled={addSaving || !addTitle.trim() || aiAnalyzing}
               className="w-full py-2.5 rounded-[var(--radius-sm)] font-semibold text-[.9rem] bg-gradient-to-br from-primary to-accent text-white shadow-[0_2px_8px_rgba(14,165,233,.25)] cursor-pointer border-none transition-all duration-200 hover:shadow-[0_4px_16px_rgba(14,165,233,.35)] disabled:opacity-60"
             >
               {addSaving ? 'Guardando...' : 'Guardar Recurso'}
@@ -451,13 +606,25 @@ export default function LearnPage() {
 function ResourceCard({ resource, onDelete, onTogglePin }: { resource: LearnResource; onDelete: (id: string) => void; onTogglePin: (r: LearnResource) => void }) {
   const display = getResourceDisplay(resource)
   const sourceLabel = getSourceLabel(resource)
+  const thumbnail = getThumbnailUrl(resource.url)
 
   return (
     <div className="bg-card rounded-[var(--radius)] p-[24px_26px] shadow-[var(--shadow)] mb-3.5 transition-all duration-200 hover:shadow-[var(--shadow-md)] group">
       <div className="flex gap-4 items-start">
-        <a href={resource.url ?? '#'} target="_blank" rel="noopener noreferrer" className={`w-12 h-12 rounded-[var(--radius-sm)] ${display.iconBg} flex items-center justify-center text-[1.3rem] shrink-0 no-underline`}>
-          {display.icon}
-        </a>
+        {thumbnail ? (
+          <a href={resource.url ?? '#'} target="_blank" rel="noopener noreferrer" className="shrink-0 no-underline">
+            <img
+              src={thumbnail}
+              alt=""
+              className="w-[120px] h-[68px] rounded-[var(--radius-sm)] object-cover"
+              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+            />
+          </a>
+        ) : (
+          <a href={resource.url ?? '#'} target="_blank" rel="noopener noreferrer" className={`w-12 h-12 rounded-[var(--radius-sm)] ${display.iconBg} flex items-center justify-center text-[1.3rem] shrink-0 no-underline`}>
+            {display.icon}
+          </a>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             {resource.url ? (

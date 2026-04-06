@@ -218,50 +218,107 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
   const [goal, setGoal] = useState(isEdit ? (goalMapReverse[existingPhase.goal] ?? 'Build / Volume') : (draft?.goal ?? 'Build / Volume'))
   const [duration, setDuration] = useState(isEdit ? String(existingPhase.duration_weeks) : (draft?.duration ?? '6'))
   const [frequency, setFrequency] = useState(isEdit ? String(existingPhase.frequency) : (draft?.frequency ?? '3'))
-  const [split, setSplit] = useState(draft?.split ?? 'Full Body')
+  const [startDate, setStartDate] = useState(isEdit ? (existingPhase.start_date ?? '') : (draft?.startDate ?? todayLocal()))
+  const [endDate, setEndDate] = useState(isEdit ? (existingPhase.end_date ?? '') : (draft?.endDate ?? ''))
+  const splitMapReverse: Record<string, string> = { full_body: 'Full Body', upper_lower: 'Upper / Lower', ppl: 'Push / Pull / Legs', custom: 'Custom' }
+  const [split, setSplit] = useState(isEdit ? (splitMapReverse[existingPhase.split_type ?? ''] ?? 'Full Body') : (draft?.split ?? 'Full Body'))
   const [focusMuscles, setFocusMuscles] = useState<string[]>(isEdit ? (existingPhase.focus_muscles ?? []) : (draft?.focusMuscles ?? []))
-  const [volume, setVolume] = useState<Record<string, { mev: number; mav: number; mrv: number }>>(draft?.volume ?? defaultVolume)
-  const [cal, setCal] = useState(isEdit && existingPhase.calorie_target ? String(existingPhase.calorie_target) : (draft?.cal ?? ''))
-  const [prot, setProt] = useState(isEdit && existingPhase.protein_target ? String(existingPhase.protein_target) : (draft?.prot ?? ''))
-  const [carbs, setCarbs] = useState(isEdit && existingPhase.carbs_target ? String(existingPhase.carbs_target) : (draft?.carbs ?? ''))
-  const [fat, setFat] = useState(isEdit && existingPhase.fat_target ? String(existingPhase.fat_target) : (draft?.fat ?? ''))
-  const [protPct, setProtPct] = useState(draft?.protPct ?? 30)
-  const [carbsPct, setCarbsPct] = useState(draft?.carbsPct ?? 40)
-  const [fatPct, setFatPct] = useState(draft?.fatPct ?? 30)
-  const [steps, setSteps] = useState(isEdit && existingPhase.step_goal ? String(existingPhase.step_goal) : (draft?.steps ?? ''))
-  const [sleep, setSleep] = useState(isEdit && existingPhase.sleep_goal ? String(existingPhase.sleep_goal) : (draft?.sleep ?? ''))
-  // Criteria states — initialized from goal-specific defaults
-  const currentGoalKey = goalMap[goal] ?? 'build'
-  const [entryStates, setEntryStates] = useState<Record<string, boolean>>(() =>
-    draft?.entryStates ?? Object.fromEntries((entryCriteriaByGoal[currentGoalKey] ?? []).map((c) => [c.id, c.defaultOn]))
+  const [volume, setVolume] = useState<Record<string, { mev: number; mav: number; mrv: number }>>(
+    isEdit && existingPhase.volume_targets && typeof existingPhase.volume_targets === 'object'
+      ? { ...defaultVolume, ...(existingPhase.volume_targets as Record<string, { mev: number; mav: number; mrv: number }>) }
+      : (draft?.volume ?? defaultVolume)
   )
-  const [entryBodyComp, setEntryBodyComp] = useState<{ weight_kg: string; body_fat_pct: string; waist_cm: string }>(draft?.entryBodyComp ?? { weight_kg: '', body_fat_pct: '', waist_cm: '' })
-  const [entryNotes, setEntryNotes] = useState(draft?.entryNotes ?? '')
+  const [cal, setCal] = useState(isEdit && existingPhase.calorie_target != null ? String(existingPhase.calorie_target) : (draft?.cal ?? ''))
+  const [prot, setProt] = useState(isEdit && existingPhase.protein_target != null ? String(existingPhase.protein_target) : (draft?.prot ?? ''))
+  const [carbs, setCarbs] = useState(isEdit && existingPhase.carbs_target != null ? String(existingPhase.carbs_target) : (draft?.carbs ?? ''))
+  const [fat, setFat] = useState(isEdit && existingPhase.fat_target != null ? String(existingPhase.fat_target) : (draft?.fat ?? ''))
+  const editCal = isEdit ? (existingPhase.calorie_target ?? 0) : 0
+  const [protPct, setProtPct] = useState(isEdit && editCal > 0 && existingPhase.protein_target ? Math.round((existingPhase.protein_target * 4 / editCal) * 100) : (draft?.protPct ?? 30))
+  const [carbsPct, setCarbsPct] = useState(isEdit && editCal > 0 && existingPhase.carbs_target ? Math.round((existingPhase.carbs_target * 4 / editCal) * 100) : (draft?.carbsPct ?? 40))
+  const [fatPct, setFatPct] = useState(isEdit && editCal > 0 && existingPhase.fat_target ? Math.round((existingPhase.fat_target * 9 / editCal) * 100) : (draft?.fatPct ?? 30))
+  const [steps, setSteps] = useState(isEdit && existingPhase.step_goal != null ? String(existingPhase.step_goal) : (draft?.steps ?? ''))
+  const [sleep, setSleep] = useState(isEdit && existingPhase.sleep_goal != null ? String(existingPhase.sleep_goal) : (draft?.sleep ?? ''))
+  // Criteria states — initialized from existing phase or goal-specific defaults
+  const currentGoalKey = goalMap[goal] ?? 'build'
+
+  function loadCriteriaStates(criteria: unknown, availableItems: CriterionItem[]): Record<string, boolean> {
+    const saved = criteria as { conditions?: { id: string }[] } | null
+    if (saved?.conditions) {
+      const enabledIds = new Set(saved.conditions.map((c) => c.id))
+      return Object.fromEntries(availableItems.map((c) => [c.id, enabledIds.has(c.id)]))
+    }
+    return Object.fromEntries(availableItems.map((c) => [c.id, c.defaultOn]))
+  }
+
+  function loadBodyComp(criteria: unknown): { weight_kg: string; body_fat_pct: string; waist_cm: string } {
+    const saved = criteria as { body_comp?: { weight_kg?: number; body_fat_pct?: number; waist_cm?: number }; targets?: { weight_kg?: number; body_fat_pct?: number; waist_cm?: number } } | null
+    const bc = saved?.body_comp ?? saved?.targets
+    if (bc) return { weight_kg: bc.weight_kg ? String(bc.weight_kg) : '', body_fat_pct: bc.body_fat_pct ? String(bc.body_fat_pct) : '', waist_cm: bc.waist_cm ? String(bc.waist_cm) : '' }
+    return { weight_kg: '', body_fat_pct: '', waist_cm: '' }
+  }
+
+  const [entryStates, setEntryStates] = useState<Record<string, boolean>>(() =>
+    isEdit ? loadCriteriaStates(existingPhase.entry_criteria, entryCriteriaByGoal[currentGoalKey] ?? [])
+    : (draft?.entryStates ?? Object.fromEntries((entryCriteriaByGoal[currentGoalKey] ?? []).map((c) => [c.id, c.defaultOn])))
+  )
+  const [entryBodyComp, setEntryBodyComp] = useState<{ weight_kg: string; body_fat_pct: string; waist_cm: string }>(
+    isEdit ? loadBodyComp(existingPhase.entry_criteria) : (draft?.entryBodyComp ?? { weight_kg: '', body_fat_pct: '', waist_cm: '' })
+  )
+  const [entryNotes, setEntryNotes] = useState(
+    isEdit ? ((existingPhase.entry_criteria as { custom_notes?: string } | null)?.custom_notes ?? '') : (draft?.entryNotes ?? '')
+  )
+
+  function loadProgressStates(criteria: unknown, items: CriterionItem[], key: 'targets' | 'warnings'): Record<string, boolean> {
+    const saved = criteria as { weekly_targets?: { id: string }[]; warning_signs?: { id: string }[] } | null
+    const list = key === 'targets' ? saved?.weekly_targets : saved?.warning_signs
+    if (list) {
+      const enabledIds = new Set(list.map((c) => c.id))
+      return Object.fromEntries(items.map((c) => [c.id, enabledIds.has(c.id)]))
+    }
+    return Object.fromEntries(items.map((c) => [c.id, c.defaultOn]))
+  }
 
   const [progressTargetStates, setProgressTargetStates] = useState<Record<string, boolean>>(() =>
-    draft?.progressTargetStates ?? Object.fromEntries((progressCriteriaByGoal[currentGoalKey]?.targets ?? []).map((c) => [c.id, c.defaultOn]))
+    isEdit ? loadProgressStates(existingPhase.progress_criteria, progressCriteriaByGoal[currentGoalKey]?.targets ?? [], 'targets')
+    : (draft?.progressTargetStates ?? Object.fromEntries((progressCriteriaByGoal[currentGoalKey]?.targets ?? []).map((c) => [c.id, c.defaultOn])))
   )
   const [progressWarningStates, setProgressWarningStates] = useState<Record<string, boolean>>(() =>
-    draft?.progressWarningStates ?? Object.fromEntries((progressCriteriaByGoal[currentGoalKey]?.warnings ?? []).map((c) => [c.id, c.defaultOn]))
+    isEdit ? loadProgressStates(existingPhase.progress_criteria, progressCriteriaByGoal[currentGoalKey]?.warnings ?? [], 'warnings')
+    : (draft?.progressWarningStates ?? Object.fromEntries((progressCriteriaByGoal[currentGoalKey]?.warnings ?? []).map((c) => [c.id, c.defaultOn])))
   )
-  const [progressNotes, setProgressNotes] = useState(draft?.progressNotes ?? '')
+  const [progressNotes, setProgressNotes] = useState(
+    isEdit ? ((existingPhase.progress_criteria as { custom_notes?: string } | null)?.custom_notes ?? '') : (draft?.progressNotes ?? '')
+  )
 
   const [exitStates, setExitStates] = useState<Record<string, boolean>>(() =>
-    draft?.exitStates ?? Object.fromEntries((exitCriteriaByGoal[currentGoalKey] ?? []).map((c) => [c.id, c.defaultOn]))
+    isEdit ? loadCriteriaStates(existingPhase.exit_criteria, exitCriteriaByGoal[currentGoalKey] ?? [])
+    : (draft?.exitStates ?? Object.fromEntries((exitCriteriaByGoal[currentGoalKey] ?? []).map((c) => [c.id, c.defaultOn])))
   )
   const [exitNote, setExitNote] = useState(isEdit ? (existingPhase.custom_exit_notes ?? '') : (draft?.exitNote ?? ''))
-  const [exitTargets, setExitTargets] = useState<{ weight_kg: string; body_fat_pct: string; waist_cm: string }>(draft?.exitTargets ?? { weight_kg: '', body_fat_pct: '', waist_cm: '' })
+  const [exitTargets, setExitTargets] = useState<{ weight_kg: string; body_fat_pct: string; waist_cm: string }>(
+    isEdit ? loadBodyComp(existingPhase.exit_criteria) : (draft?.exitTargets ?? { weight_kg: '', body_fat_pct: '', waist_cm: '' })
+  )
 
   const [criteriaTab, setCriteriaTab] = useState<'entry' | 'progress' | 'exit'>('entry')
+  const [phaseStatus, setPhaseStatus] = useState<'active' | 'planned'>(draft?.phaseStatus ?? 'planned')
   const [saving, setSaving] = useState(false)
+
+  // Auto-calculate end date from start date + duration
+  useEffect(() => {
+    if (startDate && duration) {
+      const start = new Date(startDate + 'T00:00:00')
+      start.setDate(start.getDate() + parseInt(duration) * 7)
+      setEndDate(start.toISOString().split('T')[0])
+    }
+  }, [startDate, duration])
 
   // Auto-save draft to localStorage (only in create mode)
   useEffect(() => {
     if (!open || isEdit) return
     const timer = setTimeout(() => {
       localStorage.setItem(PHASE_DRAFT_KEY, JSON.stringify({
-        step, name, objective, goal, duration, frequency, split, focusMuscles, volume,
-        cal, prot, carbs, fat, protPct, carbsPct, fatPct, steps, sleep,
+        step, name, objective, goal, duration, frequency, startDate, endDate, split, focusMuscles, volume,
+        cal, prot, carbs, fat, protPct, carbsPct, fatPct, steps, sleep, phaseStatus,
         entryStates, entryBodyComp, entryNotes,
         progressTargetStates, progressWarningStates, progressNotes,
         exitStates, exitNote, exitTargets,
@@ -269,8 +326,8 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
       }))
     }, 500)
     return () => clearTimeout(timer)
-  }, [open, isEdit, step, name, objective, goal, duration, frequency, split, focusMuscles, volume,
-    cal, prot, carbs, fat, protPct, carbsPct, fatPct, steps, sleep,
+  }, [open, isEdit, step, name, objective, goal, duration, frequency, startDate, endDate, split, focusMuscles, volume,
+    cal, prot, carbs, fat, protPct, carbsPct, fatPct, steps, sleep, phaseStatus,
     entryStates, entryBodyComp, entryNotes,
     progressTargetStates, progressWarningStates, progressNotes,
     exitStates, exitNote, exitTargets])
@@ -389,7 +446,7 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
       if (isEdit) {
         const { error } = await supabase
           .from('phases')
-          .update({ ...phaseData, updated_at: new Date().toISOString() })
+          .update({ ...phaseData, start_date: startDate || null, end_date: endDate || null, updated_at: new Date().toISOString() })
           .eq('id', existingPhase.id)
 
         if (error) {
@@ -398,19 +455,22 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
           return
         }
       } else {
-        // Deactivate existing active phases
-        await supabase
-          .from('phases')
-          .update({ status: 'paused', updated_at: new Date().toISOString() })
-          .eq('user_id', userId)
-          .eq('status', 'active')
+        // Only deactivate existing active phases if new phase is set to active
+        if (phaseStatus === 'active') {
+          await supabase
+            .from('phases')
+            .update({ status: 'paused', updated_at: new Date().toISOString() })
+            .eq('user_id', userId)
+            .eq('status', 'active')
+        }
 
         const { error } = await supabase
           .from('phases')
           .insert({
             ...phaseData,
-            status: 'active',
-            start_date: todayLocal(),
+            status: phaseStatus,
+            start_date: startDate || todayLocal(),
+            end_date: endDate || null,
           })
 
         if (error) {
@@ -534,6 +594,50 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
                   </select>
                 </div>
               </div>
+
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="text-[.77rem] text-gray-400 block mb-1">Fecha Inicio</label>
+                  <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] focus:border-primary focus:outline-none bg-card" />
+                </div>
+                <div>
+                  <label className="text-[.77rem] text-gray-400 block mb-1">Fecha Fin (auto)</label>
+                  <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] focus:border-primary focus:outline-none bg-card text-gray-500" />
+                </div>
+              </div>
+
+              {!isEdit && (
+                <div className="mb-4">
+                  <label className="text-[.77rem] text-gray-400 block mb-1">Estado Inicial</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setPhaseStatus('planned')}
+                      className={`flex-1 py-2.5 px-4 rounded-[var(--radius-sm)] border-[1.5px] text-[.85rem] font-semibold cursor-pointer transition-all duration-200 ${
+                        phaseStatus === 'planned'
+                          ? 'bg-amber-50 border-amber-400 text-amber-700'
+                          : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                      }`}
+                    >
+                      Planificada
+                    </button>
+                    <button
+                      onClick={() => setPhaseStatus('active')}
+                      className={`flex-1 py-2.5 px-4 rounded-[var(--radius-sm)] border-[1.5px] text-[.85rem] font-semibold cursor-pointer transition-all duration-200 ${
+                        phaseStatus === 'active'
+                          ? 'bg-primary-light border-primary text-primary-dark'
+                          : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                      }`}
+                    >
+                      Activar Ahora
+                    </button>
+                  </div>
+                  <p className="text-[.72rem] text-gray-400 mt-1">
+                    {phaseStatus === 'planned'
+                      ? 'La fase se crea como planificada. Podes activarla despues.'
+                      : 'La fase se activa inmediatamente (la fase activa actual se pausa).'}
+                  </p>
+                </div>
+              )}
 
               <div className="mb-4">
                 <label className="text-[.77rem] text-gray-400 block mb-1">Objetivo de la Fase (siempre visible en Inicio)</label>
@@ -873,6 +977,8 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
                     { label: 'Objetivo', value: goal },
                     { label: 'Duracion', value: `${duration} semanas` },
                     { label: 'Frecuencia', value: `${frequency}x/semana` },
+                    { label: 'Inicio', value: startDate || 'Hoy' },
+                    { label: 'Fin', value: endDate || 'Auto' },
                     { label: 'Split', value: split },
                     { label: 'Foco', value: focusMuscles.join(', ') || '--' },
                   ].map((item) => (

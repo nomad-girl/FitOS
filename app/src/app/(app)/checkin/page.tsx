@@ -7,7 +7,7 @@ import { getCached, setCache, invalidateCache } from '@/lib/cache'
 import { dateToLocal, parseLocalDate } from '@/lib/date-utils'
 import type { Phase, WeeklyCheckin, DailyLog } from '@/lib/supabase/types'
 
-type PerformanceTrend = 'down' | 'stable' | 'up'
+type PerformanceTrend = 'declining' | 'stable' | 'improving'
 
 function getWeekStart(date: Date, weekStartDay: string = 'saturday'): string {
   const dayMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
@@ -543,9 +543,9 @@ export default function CheckinPage() {
             <div className="text-[1.08rem] font-bold text-gray-800 mb-4">Tendencia de Rendimiento</div>
             <div className="flex flex-wrap gap-2">
               {([
-                { id: 'down' as const, label: '\u2193 En baja' },
+                { id: 'declining' as const, label: '\u2193 En baja' },
                 { id: 'stable' as const, label: '\u2194\uFE0F Estable' },
-                { id: 'up' as const, label: '\u2191 Mejorando' },
+                { id: 'improving' as const, label: '\u2191 Mejorando' },
               ]).map((chip) => (
                 <button
                   key={chip.id}
@@ -619,8 +619,8 @@ export default function CheckinPage() {
               <div className="mt-1 p-[12px_14px] bg-primary-light rounded-[var(--radius-xs)] border-l-[3px] border-primary">
                 <strong className="text-primary-dark">Tendencia:</strong>{' '}
                 <span className="text-gray-700">
-                  {performanceTrend === 'up' ? 'Mejorando — buen progreso!' :
-                   performanceTrend === 'down' ? 'En baja — considerar ajustes.' :
+                  {performanceTrend === 'improving' ? 'Mejorando — buen progreso!' :
+                   performanceTrend === 'declining' ? 'En baja — considerar ajustes.' :
                    'Estable — mantener el rumbo.'}
                 </span>
               </div>

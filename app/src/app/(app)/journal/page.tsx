@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { RightPanel } from '@/components/layout/right-panel'
 import { createClient } from '@/lib/supabase/client'
@@ -9,7 +10,7 @@ import { dateToLocal } from '@/lib/date-utils'
 import type { Phase, WeeklyCheckin, WeeklyDecision, DailyLog } from '@/lib/supabase/types'
 
 type BadgeVariant = 'blue' | 'green' | 'yellow' | 'gray' | 'red'
-type TabId = 'decisiones' | 'registros'
+type TabId = 'decisiones' | 'registros' | 'checkins'
 
 interface TimelineItem {
   date: string
@@ -143,7 +144,7 @@ function buildContextString(checkin: WeeklyCheckin): string | null {
     parts.push(`Energia: ${checkin.avg_energy.toFixed(1)}`)
   }
   if (checkin.performance_trend) {
-    const trendMap: Record<string, string> = { up: 'subiendo', stable: 'estable', down: 'bajando' }
+    const trendMap: Record<string, string> = { improving: 'subiendo', stable: 'estable', declining: 'bajando' }
     parts.push(`Rendimiento ${trendMap[checkin.performance_trend] ?? checkin.performance_trend}`)
   }
 
@@ -201,6 +202,45 @@ export default function JournalPage() {
   const [formData, setFormData] = useState<LogFormData>(emptyFormData())
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
+
+  // Check-ins state
+  const [checkins, setCheckins] = useState<(WeeklyCheckin & { phase_name?: string })[]>([])
+  const [checkinsLoading, setCheckinsLoading] = useState(false)
+
+  const fetchCheckins = useCallback(async () => {
+    try {
+      const cacheKey = 'journal:checkins'
+      const cached = getCached<(WeeklyCheckin & { phase_name?: string })[]>(cacheKey)
+      if (cached) {
+        setCheckins(cached)
+        setCheckinsLoading(false)
+      } else {
+        setCheckinsLoading(true)
+      }
+
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+
+      const { data: allCheckins } = await supabase
+        .from('weekly_checkins')
+        .select('*, phases(name)')
+        .eq('user_id', userId)
+        .order('checkin_date', { ascending: false })
+
+      const items = (allCheckins ?? []).map((c: Record<string, unknown>) => ({
+        ...c,
+        phase_name: (c.phases as { name: string } | null)?.name ?? '',
+      })) as (WeeklyCheckin & { phase_name?: string })[]
+
+      setCheckins(items)
+      setCache(cacheKey, items)
+    } catch (err) {
+      console.error('Error fetching checkins:', err)
+    } finally {
+      setCheckinsLoading(false)
+    }
+  }, [])
 
   const fetchDecisionsData = useCallback(async () => {
     try {
@@ -433,8 +473,10 @@ export default function JournalPage() {
   useEffect(() => {
     if (activeTab === 'registros') {
       fetchDailyLogs()
+    } else if (activeTab === 'checkins') {
+      fetchCheckins()
     }
-  }, [activeTab, fetchDailyLogs])
+  }, [activeTab, fetchDailyLogs, fetchCheckins])
 
   const handleExpand = (date: string) => {
     if (expandedDate === date) {
@@ -559,6 +601,16 @@ export default function JournalPage() {
             Decisiones
           </button>
           <button
+            onClick={() => setActiveTab('checkins')}
+            className={`px-4 py-2 rounded-[calc(var(--radius)-2px)] text-[.88rem] font-semibold transition-all ${
+              activeTab === 'checkins'
+                ? 'bg-card text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            Check-ins
+          </button>
+          <button
             onClick={() => setActiveTab('registros')}
             className={`px-4 py-2 rounded-[calc(var(--radius)-2px)] text-[.88rem] font-semibold transition-all ${
               activeTab === 'registros'
@@ -648,6 +700,100 @@ export default function JournalPage() {
                 </div>
               </div>
             ))}
+          </>
+        )}
+
+        {/* ─── Check-ins Tab ─── */}
+        {activeTab === 'checkins' && (
+          <>
+            <div className="text-[1.08rem] font-bold text-gray-800 mb-4">Historial de Check-ins Semanales</div>
+
+            {checkinsLoading && (
+              <div className="flex flex-col gap-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-card rounded-[var(--radius)] p-5 shadow-[var(--shadow)] animate-pulse">
+                    <div className="bg-gray-200 rounded h-4 w-48 mb-3" />
+                    <div className="bg-gray-200 rounded h-3 w-full mb-2" />
+                    <div className="bg-gray-200 rounded h-3 w-2/3" />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!checkinsLoading && checkins.length === 0 && (
+              <div className="bg-card rounded-[var(--radius)] p-8 shadow-[var(--shadow)] text-center">
+                <div className="text-gray-400 text-[.9rem]">No hay check-ins registrados todavia.</div>
+                <Link href="/checkin" className="inline-block mt-3 text-primary font-semibold text-[.88rem] hover:underline">
+                  Hacer mi primer check-in
+                </Link>
+              </div>
+            )}
+
+            {!checkinsLoading && checkins.length > 0 && (
+              <div className="flex flex-col gap-3">
+                {checkins.map((c) => {
+                  const trendMap: Record<string, { label: string; color: string }> = {
+                    improving: { label: 'Mejorando', color: '#10B981' },
+                    stable: { label: 'Estable', color: '#F59E0B' },
+                    declining: { label: 'En baja', color: '#EF4444' },
+                  }
+                  const trend = c.performance_trend ? trendMap[c.performance_trend] : null
+
+                  return (
+                    <div key={c.id} className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)]">
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <span className="font-bold text-[.95rem] text-gray-800">
+                            {c.phase_name ? `${c.phase_name} — ` : ''}Semana {c.week_number}
+                          </span>
+                          <span className="text-gray-400 text-[.78rem] ml-2">{formatDate(c.checkin_date)}</span>
+                        </div>
+                        <Link
+                          href={`/checkin`}
+                          className="text-primary text-[.82rem] font-semibold hover:underline"
+                        >
+                          Editar
+                        </Link>
+                      </div>
+
+                      {/* Metrics row */}
+                      <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[.82rem] text-gray-600 mb-2">
+                        {c.weight_kg != null && (
+                          <span>Peso: <strong className="text-gray-800">{c.weight_kg} kg</strong></span>
+                        )}
+                        {c.waist_cm != null && (
+                          <span>Cintura: <strong className="text-gray-800">{c.waist_cm} cm</strong></span>
+                        )}
+                        {c.hip_cm != null && (
+                          <span>Cadera: <strong className="text-gray-800">{c.hip_cm} cm</strong></span>
+                        )}
+                        {c.avg_calories != null && (
+                          <span>Cal: <strong className="text-gray-800">{Math.round(c.avg_calories)}</strong></span>
+                        )}
+                        {c.avg_protein != null && (
+                          <span>Prot: <strong className="text-gray-800">{Math.round(c.avg_protein)}g</strong></span>
+                        )}
+                        {c.avg_sleep_hours != null && (
+                          <span>Sueno: <strong className="text-gray-800">{c.avg_sleep_hours}h</strong></span>
+                        )}
+                      </div>
+
+                      {/* Trend + notes */}
+                      <div className="flex items-center gap-3 text-[.82rem]">
+                        {trend && (
+                          <span className="inline-flex items-center gap-1 py-0.5 px-2 rounded-full text-[.75rem] font-medium" style={{ backgroundColor: `${trend.color}15`, color: trend.color }}>
+                            {c.performance_trend === 'improving' ? '\u2191' : c.performance_trend === 'declining' ? '\u2193' : '\u2194\uFE0F'} {trend.label}
+                          </span>
+                        )}
+                        {c.notes && (
+                          <span className="text-gray-500 truncate max-w-[300px]">{c.notes}</span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </>
         )}
 

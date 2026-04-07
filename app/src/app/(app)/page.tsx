@@ -41,6 +41,7 @@ export default function DashboardPage() {
   const [, setSeeding] = useState(false)
   const [, setSeedDone] = useState(false)
   const [showChart, setShowChart] = useState(false)
+  const [expandedScoreKey, setExpandedScoreKey] = useState<string | null>(null)
   const [chartVars, setChartVars] = useState<Record<string, boolean>>({
     calories: true,
     protein: true,
@@ -750,22 +751,32 @@ export default function DashboardPage() {
             <div className="text-[.8rem] opacity-70 mt-1">Puntaje Semanal</div>
           </div>
           <div className="mt-[18px] grid grid-cols-2 gap-2">
-            {[
-              { label: 'Entrenamiento', key: 'training' },
-              { label: 'Nutricion', key: 'nutrition' },
-              { label: 'Pasos', key: 'steps' },
-              { label: 'Sueno', key: 'sleep' },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className="text-center bg-white/[.08] rounded-[10px] p-2.5"
-              >
-                <div className="text-[.7rem] opacity-60">{item.label}</div>
-                <div className="font-extrabold text-[1.05rem]">
-                  {scoreBreakdown && scoreBreakdown[item.key] != null ? `${scoreBreakdown[item.key]}%` : '--'}
-                </div>
-              </div>
-            ))}
+            {([
+              { label: 'Entrenamiento', key: 'training', emoji: '\uD83C\uDFCB\uFE0F', desc: 'Sesiones completadas vs planificadas esta semana. Peso: 30% del score total.' },
+              { label: 'Nutricion', key: 'nutrition', emoji: '\uD83C\uDF4E', desc: 'Calorias y proteina vs tus objetivos configurados. Si no hay objetivos, mide consistencia de registro. Peso: 30%.' },
+              { label: 'Pasos', key: 'steps', emoji: '\uD83D\uDEB6', desc: 'Promedio de pasos diarios vs tu objetivo de pasos. Peso: 20%.' },
+              { label: 'Sueno', key: 'sleep', emoji: '\uD83D\uDE34', desc: 'Promedio de horas de sueno vs tu objetivo. Peso: 20%.' },
+            ] as const).map((item) => {
+              const isExpanded = expandedScoreKey === item.key
+              const val = scoreBreakdown && scoreBreakdown[item.key] != null ? scoreBreakdown[item.key] : null
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => setExpandedScoreKey(isExpanded ? null : item.key)}
+                  className="text-center bg-white/[.08] rounded-[10px] p-2.5 border-none cursor-pointer transition-all hover:bg-white/[.14] text-white text-left"
+                >
+                  <div className="text-[.7rem] opacity-60">{item.emoji} {item.label}</div>
+                  <div className="font-extrabold text-[1.05rem] text-center">
+                    {val != null ? `${val}%` : '--'}
+                  </div>
+                  {isExpanded && (
+                    <div className="text-[.68rem] opacity-50 mt-1.5 leading-relaxed font-normal text-center">
+                      {item.desc}
+                    </div>
+                  )}
+                </button>
+              )
+            })}
           </div>
         </div>
 

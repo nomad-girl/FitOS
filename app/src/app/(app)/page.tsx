@@ -133,8 +133,8 @@ export default function DashboardPage() {
       ])
 
       const targets = {
-        calorie_target: profile?.calorie_target ?? null,
-        protein_target: profile?.protein_target ?? null,
+        calorie_target: phase?.calorie_target ?? profile?.calorie_target ?? null,
+        protein_target: phase?.protein_target ?? profile?.protein_target ?? null,
         step_goal: profile?.step_goal ?? null,
         sleep_goal: profile?.sleep_goal ?? null,
       }
@@ -164,11 +164,11 @@ export default function DashboardPage() {
     } catch {
       // ignore
     }
-  }, [profile])
+  }, [profile, phase])
 
   useEffect(() => {
     if (profile) fetchLiveScore()
-  }, [profile, fetchLiveScore])
+  }, [profile, phase, fetchLiveScore])
 
   async function handleSeed() {
     setSeeding(true)

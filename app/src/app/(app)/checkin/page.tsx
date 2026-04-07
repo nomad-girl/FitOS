@@ -50,6 +50,7 @@ export default function CheckinPage() {
   const [weeklyLogs, setWeeklyLogs] = useState<DailyLog[]>([])
   const [existingCheckin, setExistingCheckin] = useState<WeeklyCheckin | null>(null)
   const [averages, setAverages] = useState<Record<string, number | null>>({})
+  const [prevAverages, setPrevAverages] = useState<Record<string, number | null>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [savingDecision, setSavingDecision] = useState(false)
@@ -63,6 +64,20 @@ export default function CheckinPage() {
     const diffMs = target.getTime() - start.getTime()
     const diffWeeks = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 7))
     return Math.max(1, diffWeeks + 1)
+  }
+
+  // Week-over-week delta indicator
+  const Delta = ({ current, previous, inverse, suffix }: { current: number | null; previous: number | null; inverse?: boolean; suffix?: string }) => {
+    if (current == null || previous == null || previous === 0) return null
+    const pct = Math.round(((current - previous) / Math.abs(previous)) * 100)
+    if (pct === 0) return null
+    const isUp = pct > 0
+    const isGood = inverse ? !isUp : isUp
+    return (
+      <span className="text-[.68rem] font-medium ml-1" style={{ color: isGood ? '#10B981' : '#EF4444' }}>
+        {isUp ? '\u2191' : '\u2193'}{Math.abs(pct)}%{suffix ?? ''}
+      </span>
+    )
   }
 
   const fetchData = useCallback(async () => {
@@ -146,27 +161,55 @@ export default function CheckinPage() {
         }
       }
 
-      // Fetch weekly logs
+      // Fetch weekly logs + previous week logs in parallel
       const weekEnd = parseLocalDate(weekStart)
       weekEnd.setDate(weekEnd.getDate() + 6)
       const weekEndStr = dateToLocal(weekEnd)
 
-      const { data: logs } = await supabase
-        .from('daily_logs')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('log_date', weekStart)
-        .lte('log_date', weekEndStr)
-        .order('log_date', { ascending: true })
+      const prevWeekStart = getWeekStartWithOffset(weekOffset - 1, weekStartDay)
+      const prevWeekEnd = parseLocalDate(prevWeekStart)
+      prevWeekEnd.setDate(prevWeekEnd.getDate() + 6)
+      const prevWeekEndStr = dateToLocal(prevWeekEnd)
+
+      const [{ data: logs }, { data: prevLogs }] = await Promise.all([
+        supabase
+          .from('daily_logs')
+          .select('*')
+          .eq('user_id', userId)
+          .gte('log_date', weekStart)
+          .lte('log_date', weekEndStr)
+          .order('log_date', { ascending: true }),
+        supabase
+          .from('daily_logs')
+          .select('*')
+          .eq('user_id', userId)
+          .gte('log_date', prevWeekStart)
+          .lte('log_date', prevWeekEndStr),
+      ])
+
+      const avg = (values: (number | null)[]) => {
+        const valid = values.filter((v): v is number => v !== null)
+        if (valid.length === 0) return null
+        return Math.round((valid.reduce((a, b) => a + b, 0) / valid.length) * 10) / 10
+      }
+
+      // Previous week averages
+      if (prevLogs && prevLogs.length > 0) {
+        setPrevAverages({
+          avg_calories: avg(prevLogs.map((l) => l.calories)) !== null ? Math.round(avg(prevLogs.map((l) => l.calories))!) : null,
+          avg_protein: avg(prevLogs.map((l) => l.protein_g)) !== null ? Math.round(avg(prevLogs.map((l) => l.protein_g))!) : null,
+          avg_steps: avg(prevLogs.map((l) => l.steps)) !== null ? Math.round(avg(prevLogs.map((l) => l.steps))!) : null,
+          avg_sleep_hours: avg(prevLogs.map((l) => l.sleep_hours)),
+          avg_energy: avg(prevLogs.map((l) => l.energy)),
+          avg_hunger: avg(prevLogs.map((l) => l.hunger)),
+          avg_fatigue: avg(prevLogs.map((l) => l.fatigue_level)),
+        })
+      } else {
+        setPrevAverages({})
+      }
 
       if (logs) {
         setWeeklyLogs(logs)
-        // Compute averages
-        const avg = (values: (number | null)[]) => {
-          const valid = values.filter((v): v is number => v !== null)
-          if (valid.length === 0) return null
-          return Math.round((valid.reduce((a, b) => a + b, 0) / valid.length) * 10) / 10
-        }
 
         const computedAverages = {
           avg_calories: avg(logs.map((l) => l.calories)) !== null ? Math.round(avg(logs.map((l) => l.calories))!) : null,
@@ -503,6 +546,7 @@ export default function CheckinPage() {
                 <span className="text-gray-400">Calorias</span>
                 <span>
                   <strong>{averages.avg_calories ?? '--'}</strong>
+                  <Delta current={averages.avg_calories} previous={prevAverages.avg_calories} />
                   {calGoal && <span className="text-[.77rem] text-gray-400"> (objetivo: {calGoal})</span>}
                 </span>
               </div>
@@ -510,6 +554,7 @@ export default function CheckinPage() {
                 <span className="text-gray-400">Proteina</span>
                 <span>
                   <strong>{averages.avg_protein ?? '--'}g</strong>
+                  <Delta current={averages.avg_protein} previous={prevAverages.avg_protein} />
                   {protGoal && <span className="text-[.77rem] text-gray-400"> (objetivo: {protGoal}g)</span>}
                 </span>
               </div>
@@ -517,6 +562,7 @@ export default function CheckinPage() {
                 <span className="text-gray-400">Pasos</span>
                 <span>
                   <strong>{averages.avg_steps ? averages.avg_steps.toLocaleString() : '--'}</strong>
+                  <Delta current={averages.avg_steps} previous={prevAverages.avg_steps} />
                   {stepGoal && <span className="text-[.77rem] text-gray-400"> ({Math.round(((averages.avg_steps ?? 0) / stepGoal) * 100)}%)</span>}
                 </span>
               </div>
@@ -524,16 +570,23 @@ export default function CheckinPage() {
                 <span className="text-gray-400">Sueno</span>
                 <span>
                   <strong>{averages.avg_sleep_hours ?? '--'}h</strong>
+                  <Delta current={averages.avg_sleep_hours} previous={prevAverages.avg_sleep_hours} />
                   {sleepGoal && <span className="text-[.77rem] text-gray-400"> ({Math.round(((averages.avg_sleep_hours ?? 0) / sleepGoal) * 100)}%)</span>}
                 </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Energia</span>
-                <span><strong>{averages.avg_energy ?? '--'}</strong> avg</span>
+                <span>
+                  <strong>{averages.avg_energy ?? '--'}</strong> avg
+                  <Delta current={averages.avg_energy} previous={prevAverages.avg_energy} />
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-400">Hambre</span>
-                <span><strong>{averages.avg_hunger ?? '--'}</strong> avg</span>
+                <span>
+                  <strong>{averages.avg_hunger ?? '--'}</strong> avg
+                  <Delta current={averages.avg_hunger} previous={prevAverages.avg_hunger} inverse />
+                </span>
               </div>
             </div>
           </div>

@@ -39,6 +39,7 @@ export default function DashboardPage() {
   const [insights, setInsights] = useState<Insight[]>([])
   const [recentWorkouts, setRecentWorkouts] = useState<{ id: string; session_date: string; notes: string | null; duration_minutes: number | null; total_volume_kg: number | null }[]>([])
   const [liveScore, setLiveScore] = useState<import('@/lib/weekly-score').WeeklyScoreData | null>(null)
+  const [scoreContext, setScoreContext] = useState<{ sessionsDone: number; sessionsPlanned: number; avgCal: number | null; avgProt: number | null; avgSteps: number | null; avgSleep: number | null; calTarget: number | null; protTarget: number | null; stepGoal: number | null; sleepGoal: number | null } | null>(null)
   const [, setSeeding] = useState(false)
   const [, setSeedDone] = useState(false)
   const [showChart, setShowChart] = useState(false)
@@ -131,17 +132,35 @@ export default function DashboardPage() {
           .gte('session_date', thisWeekStart),
       ])
 
-      const scoreData = computeWeeklyScore(
-        weekLogs ?? [],
-        {
-          calorie_target: profile?.calorie_target ?? null,
-          protein_target: profile?.protein_target ?? null,
-          step_goal: profile?.step_goal ?? null,
-          sleep_goal: profile?.sleep_goal ?? null,
-        },
-        { done: weekSessions?.length ?? 0, planned: trainingDays },
-      )
+      const targets = {
+        calorie_target: profile?.calorie_target ?? null,
+        protein_target: profile?.protein_target ?? null,
+        step_goal: profile?.step_goal ?? null,
+        sleep_goal: profile?.sleep_goal ?? null,
+      }
+      const sessionsDone = weekSessions?.length ?? 0
+      const wl = weekLogs ?? []
+
+      const scoreData = computeWeeklyScore(wl, targets, { done: sessionsDone, planned: trainingDays })
       setLiveScore(scoreData)
+
+      // Store context for actionable messages
+      const avg = (vals: (number | null)[]) => {
+        const v = vals.filter((x): x is number => x != null)
+        return v.length > 0 ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null
+      }
+      setScoreContext({
+        sessionsDone,
+        sessionsPlanned: trainingDays,
+        avgCal: avg(wl.map((l) => l.calories)),
+        avgProt: avg(wl.map((l) => l.protein_g)),
+        avgSteps: avg(wl.map((l) => l.steps)),
+        avgSleep: avg(wl.map((l) => l.sleep_hours)),
+        calTarget: targets.calorie_target,
+        protTarget: targets.protein_target,
+        stepGoal: targets.step_goal,
+        sleepGoal: targets.sleep_goal,
+      })
     } catch {
       // ignore
     }
@@ -789,32 +808,77 @@ export default function DashboardPage() {
             <div className="text-[.8rem] opacity-70 mt-1">Puntaje Semanal</div>
           </div>
           <div className="mt-[18px] grid grid-cols-2 gap-2">
-            {([
-              { label: 'Entrenamiento', key: 'training', emoji: '\uD83C\uDFCB\uFE0F', desc: 'Sesiones completadas vs planificadas esta semana. Peso: 30% del score total.' },
-              { label: 'Nutricion', key: 'nutrition', emoji: '\uD83C\uDF4E', desc: 'Calorias y proteina vs tus objetivos configurados. Si no hay objetivos, mide consistencia de registro. Peso: 30%.' },
-              { label: 'Pasos', key: 'steps', emoji: '\uD83D\uDEB6', desc: 'Promedio de pasos diarios vs tu objetivo de pasos. Peso: 20%.' },
-              { label: 'Sueno', key: 'sleep', emoji: '\uD83D\uDE34', desc: 'Promedio de horas de sueno vs tu objetivo. Peso: 20%.' },
-            ] as const).map((item) => {
-              const isExpanded = expandedScoreKey === item.key
-              const val = scoreBreakdown && scoreBreakdown[item.key] != null ? scoreBreakdown[item.key] : null
-              return (
-                <button
-                  key={item.key}
-                  onClick={() => setExpandedScoreKey(isExpanded ? null : item.key)}
-                  className="text-center bg-white/[.08] rounded-[10px] p-2.5 border-none cursor-pointer transition-all hover:bg-white/[.14] text-white text-left"
-                >
-                  <div className="text-[.7rem] opacity-60">{item.emoji} {item.label}</div>
-                  <div className="font-extrabold text-[1.05rem] text-center">
-                    {val != null ? `${val}%` : '--'}
-                  </div>
-                  {isExpanded && (
-                    <div className="text-[.68rem] opacity-50 mt-1.5 leading-relaxed font-normal text-center">
-                      {item.desc}
+            {(() => {
+              const ctx = scoreContext
+              const getMsg = (key: string): string => {
+                if (!ctx) return ''
+                switch (key) {
+                  case 'training': {
+                    const left = ctx.sessionsPlanned - ctx.sessionsDone
+                    if (left <= 0) return 'Completaste todas las sesiones!'
+                    return `Te ${left === 1 ? 'falta' : 'faltan'} ${left} de ${ctx.sessionsPlanned} sesiones`
+                  }
+                  case 'nutrition': {
+                    const parts: string[] = []
+                    if (ctx.calTarget && ctx.avgCal != null) {
+                      const diff = ctx.avgCal - ctx.calTarget
+                      if (Math.abs(diff) < 50) parts.push('Calorias en objetivo')
+                      else if (diff > 0) parts.push(`+${diff} cal sobre objetivo`)
+                      else parts.push(`${Math.abs(diff)} cal bajo objetivo`)
+                    }
+                    if (ctx.protTarget && ctx.avgProt != null) {
+                      const diff = ctx.avgProt - ctx.protTarget
+                      if (diff >= 0) parts.push('Proteina OK')
+                      else parts.push(`Faltan ${Math.abs(diff)}g de proteina`)
+                    }
+                    return parts.length > 0 ? parts.join('. ') : 'Sin objetivos configurados'
+                  }
+                  case 'steps': {
+                    if (ctx.stepGoal && ctx.avgSteps != null) {
+                      const pct = Math.round((ctx.avgSteps / ctx.stepGoal) * 100)
+                      if (pct >= 100) return `${(ctx.avgSteps / 1000).toFixed(1)}k promedio. Objetivo cumplido!`
+                      return `${(ctx.avgSteps / 1000).toFixed(1)}k de ${(ctx.stepGoal / 1000).toFixed(0)}k objetivo`
+                    }
+                    return ctx.avgSteps ? `${(ctx.avgSteps / 1000).toFixed(1)}k promedio` : 'Sin datos'
+                  }
+                  case 'sleep': {
+                    if (ctx.sleepGoal && ctx.avgSleep != null) {
+                      if (ctx.avgSleep >= ctx.sleepGoal) return `${ctx.avgSleep}h promedio. Objetivo cumplido!`
+                      const diff = (ctx.sleepGoal - ctx.avgSleep).toFixed(1)
+                      return `${ctx.avgSleep}h de ${ctx.sleepGoal}h objetivo (-${diff}h)`
+                    }
+                    return ctx.avgSleep ? `${ctx.avgSleep}h promedio` : 'Sin datos'
+                  }
+                  default: return ''
+                }
+              }
+
+              return ([
+                { label: 'Entrenamiento', key: 'training', emoji: '\uD83C\uDFCB\uFE0F' },
+                { label: 'Nutricion', key: 'nutrition', emoji: '\uD83C\uDF4E' },
+                { label: 'Pasos', key: 'steps', emoji: '\uD83D\uDEB6' },
+                { label: 'Sueno', key: 'sleep', emoji: '\uD83D\uDE34' },
+              ] as const).map((item) => {
+                const val = scoreBreakdown && scoreBreakdown[item.key] != null ? scoreBreakdown[item.key] : null
+                const msg = getMsg(item.key)
+                return (
+                  <div
+                    key={item.key}
+                    className="text-center bg-white/[.08] rounded-[10px] p-2.5"
+                  >
+                    <div className="text-[.7rem] opacity-60">{item.emoji} {item.label}</div>
+                    <div className="font-extrabold text-[1.05rem]">
+                      {val != null ? `${val}%` : '--'}
                     </div>
-                  )}
-                </button>
-              )
-            })}
+                    {msg && (
+                      <div className="text-[.65rem] opacity-50 mt-1 leading-snug">
+                        {msg}
+                      </div>
+                    )}
+                  </div>
+                )
+              })
+            })()}
           </div>
         </div>
 

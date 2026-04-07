@@ -35,6 +35,7 @@ export default function DashboardPage() {
   const [tableWeekOffset, setTableWeekOffset] = useState(0)
   const { data: weeklyData, loading: weeklyLoading } = useWeeklyData(phase?.id, weekStartDay)
   const { data: tableWeekData } = useWeeklyData(tableWeekOffset !== 0 ? phase?.id : undefined, weekStartDay, tableWeekOffset)
+  const { data: prevWeekData } = useWeeklyData(phase?.id ?? undefined, weekStartDay, tableWeekOffset - 1)
   const [insights, setInsights] = useState<Insight[]>([])
   const [recentWorkouts, setRecentWorkouts] = useState<{ id: string; session_date: string; notes: string | null; duration_minutes: number | null; total_volume_kg: number | null }[]>([])
   const [liveScore, setLiveScore] = useState<import('@/lib/weekly-score').WeeklyScoreData | null>(null)
@@ -205,6 +206,22 @@ export default function DashboardPage() {
   // Build daily table (supports week navigation)
   const tableLogs = tableWeekOffset !== 0 ? (tableWeekData?.logs ?? []) : logs
   const tableAverages = tableWeekOffset !== 0 ? tableWeekData?.averages : averages
+  const prevAverages = prevWeekData?.averages
+
+  // Week-over-week delta for PROM column
+  const WoW = ({ current, previous, inverse }: { current: number | null | undefined; previous: number | null | undefined; inverse?: boolean }) => {
+    if (current == null || previous == null || previous === 0) return null
+    const pct = Math.round(((current - previous) / Math.abs(previous)) * 100)
+    if (pct === 0) return null
+    const isUp = pct > 0
+    const isGood = inverse ? !isUp : isUp
+    return (
+      <div className="text-[.62rem] font-medium leading-tight" style={{ color: isGood ? '#10B981' : '#EF4444' }}>
+        {isUp ? '\u2191' : '\u2193'}{Math.abs(pct)}%
+      </div>
+    )
+  }
+
   const tableBaseDate = new Date()
   if (tableWeekOffset !== 0) tableBaseDate.setDate(tableBaseDate.getDate() + tableWeekOffset * 7)
   const tableWeekStart = getWeekStartDate(tableBaseDate, weekStartDay)
@@ -522,49 +539,70 @@ export default function DashboardPage() {
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.calories ?? '\u2014'}</td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_calories ?? '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">
+                    {tableAverages?.avg_calories ?? '\u2014'}
+                    <WoW current={tableAverages?.avg_calories} previous={prevAverages?.avg_calories} />
+                  </td>
                 </tr>
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Prot</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.protein_g ?? '\u2014'}</td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_protein ? `${tableAverages.avg_protein}g` : '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">
+                    {tableAverages?.avg_protein ? `${tableAverages.avg_protein}g` : '\u2014'}
+                    <WoW current={tableAverages?.avg_protein} previous={prevAverages?.avg_protein} />
+                  </td>
                 </tr>
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Pasos</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{formatSteps(logsByDay[d]?.steps ?? null) ?? '\u2014'}</td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{formatSteps(tableAverages?.avg_steps ?? null) ?? '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">
+                    {formatSteps(tableAverages?.avg_steps ?? null) ?? '\u2014'}
+                    <WoW current={tableAverages?.avg_steps} previous={prevAverages?.avg_steps} />
+                  </td>
                 </tr>
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Sueno</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.sleep_hours ?? '\u2014'}</td>
                   ))}
-                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">{tableAverages?.avg_sleep_hours ? `${tableAverages.avg_sleep_hours}h` : '\u2014'}</td>
+                  <td className="py-[7px] px-2 text-center font-bold text-gray-800">
+                    {tableAverages?.avg_sleep_hours ? `${tableAverages.avg_sleep_hours}h` : '\u2014'}
+                    <WoW current={tableAverages?.avg_sleep_hours} previous={prevAverages?.avg_sleep_hours} />
+                  </td>
                 </tr>
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Energia</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center"><BatteryBar value={logsByDay[d]?.energy} color="#10B981" /></td>
                   ))}
-                  <td className="py-[7px] px-2 text-center"><BatteryBar value={tableAverages?.avg_energy} color="#10B981" /></td>
+                  <td className="py-[7px] px-2 text-center">
+                    <BatteryBar value={tableAverages?.avg_energy} color="#10B981" />
+                    <WoW current={tableAverages?.avg_energy} previous={prevAverages?.avg_energy} />
+                  </td>
                 </tr>
                 <tr className="border-b border-gray-50">
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Hambre</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center"><BatteryBar value={logsByDay[d]?.hunger} color="#F59E0B" inverse /></td>
                   ))}
-                  <td className="py-[7px] px-2 text-center"><BatteryBar value={tableAverages?.avg_hunger} color="#F59E0B" inverse /></td>
+                  <td className="py-[7px] px-2 text-center">
+                    <BatteryBar value={tableAverages?.avg_hunger} color="#F59E0B" inverse />
+                    <WoW current={tableAverages?.avg_hunger} previous={prevAverages?.avg_hunger} inverse />
+                  </td>
                 </tr>
                 <tr>
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Fatiga</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center"><BatteryBar value={logsByDay[d]?.fatigue_level} color="#EF4444" inverse /></td>
                   ))}
-                  <td className="py-[7px] px-2 text-center"><BatteryBar value={tableAverages?.avg_fatigue} color="#EF4444" inverse /></td>
+                  <td className="py-[7px] px-2 text-center">
+                    <BatteryBar value={tableAverages?.avg_fatigue} color="#EF4444" inverse />
+                    <WoW current={tableAverages?.avg_fatigue} previous={prevAverages?.avg_fatigue} inverse />
+                  </td>
                 </tr>
                 <tr>
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Entreno</td>

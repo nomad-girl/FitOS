@@ -451,9 +451,18 @@ export default function DashboardPage() {
             </div>
             <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)] mb-[18px] text-center">
               <div className="text-[.77rem] text-gray-400 mb-0.5">Adherencia</div>
-              <div className="text-[1.25rem] font-extrabold text-gray-800">{checkin.training_adherence ? `${Math.round(checkin.training_adherence)}%` : '--'}</div>
-              {checkin.training_sets_executed != null && checkin.training_sets_planned != null && (
-                <div className="text-[.8rem] text-success font-semibold">{checkin.training_sets_executed}/{checkin.training_sets_planned} series</div>
+              <div className="text-[1.25rem] font-extrabold text-gray-800">
+                {(() => {
+                  // Live calculation from scoreContext, fallback to checkin data
+                  if (scoreContext && scoreContext.sessionsPlanned > 0) {
+                    return `${Math.round((scoreContext.sessionsDone / scoreContext.sessionsPlanned) * 100)}%`
+                  }
+                  if (checkin.training_adherence) return `${Math.round(checkin.training_adherence)}%`
+                  return '--'
+                })()}
+              </div>
+              {scoreContext && scoreContext.sessionsPlanned > 0 && (
+                <div className="text-[.8rem] text-success font-semibold">{scoreContext.sessionsDone}/{scoreContext.sessionsPlanned} sesiones</div>
               )}
             </div>
           </div>

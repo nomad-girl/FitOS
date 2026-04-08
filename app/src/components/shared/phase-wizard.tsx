@@ -303,6 +303,50 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
   const [phaseStatus, setPhaseStatus] = useState<'active' | 'planned'>(draft?.phaseStatus ?? 'planned')
   const [saving, setSaving] = useState(false)
 
+  // Re-populate form when opening for edit (useState only inits on first mount)
+  useEffect(() => {
+    if (!open) return
+    if (mode === 'edit' && existingPhase) {
+      setStep(1)
+      setName(existingPhase.name)
+      setObjective(existingPhase.objective ?? '')
+      setGoal(goalMapReverse[existingPhase.goal] ?? 'Build / Volume')
+      setDuration(String(existingPhase.duration_weeks))
+      setFrequency(String(existingPhase.frequency))
+      setStartDate(existingPhase.start_date ?? '')
+      setEndDate(existingPhase.end_date ?? '')
+      setSplit(splitMapReverse[existingPhase.split_type ?? ''] ?? 'Full Body')
+      setFocusMuscles(existingPhase.focus_muscles ?? [])
+      setVolume(
+        existingPhase.volume_targets && typeof existingPhase.volume_targets === 'object'
+          ? { ...defaultVolume, ...(existingPhase.volume_targets as Record<string, { mev: number; mav: number; mrv: number }>) }
+          : defaultVolume
+      )
+      setCal(existingPhase.calorie_target != null ? String(existingPhase.calorie_target) : '')
+      setProt(existingPhase.protein_target != null ? String(existingPhase.protein_target) : '')
+      setCarbs(existingPhase.carbs_target != null ? String(existingPhase.carbs_target) : '')
+      setFat(existingPhase.fat_target != null ? String(existingPhase.fat_target) : '')
+      const ec = existingPhase.calorie_target ?? 0
+      setProtPct(ec > 0 && existingPhase.protein_target ? Math.round((existingPhase.protein_target * 4 / ec) * 100) : 30)
+      setCarbsPct(ec > 0 && existingPhase.carbs_target ? Math.round((existingPhase.carbs_target * 4 / ec) * 100) : 40)
+      setFatPct(ec > 0 && existingPhase.fat_target ? Math.round((existingPhase.fat_target * 9 / ec) * 100) : 30)
+      setSteps(existingPhase.step_goal != null ? String(existingPhase.step_goal) : '')
+      setSleep(existingPhase.sleep_goal != null ? String(existingPhase.sleep_goal) : '')
+      setPhaseStatus(existingPhase.status === 'active' ? 'active' : 'planned')
+      const gk = goalMap[goalMapReverse[existingPhase.goal] ?? 'Build / Volume'] ?? 'build'
+      setEntryStates(loadCriteriaStates(existingPhase.entry_criteria, entryCriteriaByGoal[gk] ?? []))
+      setEntryBodyComp(loadBodyComp(existingPhase.entry_criteria))
+      setEntryNotes((existingPhase.entry_criteria as { custom_notes?: string } | null)?.custom_notes ?? '')
+      setProgressTargetStates(loadProgressStates(existingPhase.progress_criteria, progressCriteriaByGoal[gk]?.targets ?? [], 'targets'))
+      setProgressWarningStates(loadProgressStates(existingPhase.progress_criteria, progressCriteriaByGoal[gk]?.warnings ?? [], 'warnings'))
+      setProgressNotes((existingPhase.progress_criteria as { custom_notes?: string } | null)?.custom_notes ?? '')
+      setExitStates(loadCriteriaStates(existingPhase.exit_criteria, exitCriteriaByGoal[gk] ?? []))
+      setExitNote(existingPhase.custom_exit_notes ?? '')
+      setExitTargets(loadBodyComp(existingPhase.exit_criteria))
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, existingPhase?.id])
+
   // Auto-calculate end date from start date + duration
   useEffect(() => {
     if (startDate && duration) {

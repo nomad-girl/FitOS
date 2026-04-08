@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: "default",
+    statusBarStyle: "black-translucent",
     title: "FitOS",
   },
 };
@@ -39,7 +39,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es-AR" className={`${inter.variable} h-full`}>
-      <body className="min-h-full font-sans antialiased">{children}</body>
+      <body className="min-h-full font-sans antialiased pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">{children}</body>
     </html>
   );
 }

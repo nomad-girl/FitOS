@@ -695,14 +695,14 @@ export default function DashboardPage() {
 
               {/* SVG Line Chart */}
               <div className="relative h-[200px] w-full">
-                <svg width="100%" height="100%" viewBox="0 0 700 200" preserveAspectRatio="none" className="overflow-visible">
+                <svg width="100%" height="100%" viewBox="0 0 350 200" preserveAspectRatio="xMidYMid meet" className="overflow-visible">
                   {/* Grid lines */}
                   {[0, 1, 2, 3, 4].map((i) => (
-                    <line key={i} x1="50" y1={10 + i * 45} x2="680" y2={10 + i * 45} stroke="#F3F4F6" strokeWidth="1" />
+                    <line key={i} x1="5" y1={10 + i * 42} x2="345" y2={10 + i * 42} stroke="#F3F4F6" strokeWidth="0.5" />
                   ))}
                   {/* Day labels */}
                   {dayLabels.map((d, i) => (
-                    <text key={d} x={50 + i * 90 + 45} y="198" textAnchor="middle" fill="#9CA3AF" fontSize="11" fontWeight="600">{d}</text>
+                    <text key={d} x={5 + i * (340 / 7) + (340 / 14)} y="198" textAnchor="middle" fill="#9CA3AF" fontSize="9" fontWeight="600">{d}</text>
                   ))}
 
                   {/* Plot each enabled variable */}
@@ -715,6 +715,7 @@ export default function DashboardPage() {
                     { key: 'steps', color: '#06B6D4', getValue: (log: typeof logs[0] | null) => log?.steps, scale: (v: number) => Math.min(v / 20000, 1) },
                     { key: 'sleep', color: '#6366F1', getValue: (log: typeof logs[0] | null) => log?.sleep_hours, scale: (v: number) => Math.min(v / 10, 1) },
                   ] as const).filter((v) => chartVars[v.key]).map((variable) => {
+                    const colW = 340 / 7
                     const points: { x: number; y: number; value: number }[] = []
                     dayLabels.forEach((d, i) => {
                       const log = logsByDay[d]
@@ -722,7 +723,7 @@ export default function DashboardPage() {
                       if (raw != null) {
                         const normalized = variable.scale(raw)
                         points.push({
-                          x: 50 + i * 90 + 45,
+                          x: 5 + i * colW + colW / 2,
                           y: 170 - normalized * 160,
                           value: raw,
                         })
@@ -738,12 +739,12 @@ export default function DashboardPage() {
                     return (
                       <g key={variable.key}>
                         {points.length > 1 && (
-                          <path d={pathD} fill="none" stroke={variable.color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
+                          <path d={pathD} fill="none" stroke={variable.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
                         )}
                         {points.map((p, i) => (
                           <g key={i}>
-                            <circle cx={p.x} cy={p.y} r="4" fill={variable.color} stroke="white" strokeWidth="2" />
-                            <text x={p.x} y={p.y - 10} textAnchor="middle" fill={variable.color} fontSize="10" fontWeight="600">
+                            <circle cx={p.x} cy={p.y} r="3" fill={variable.color} stroke="white" strokeWidth="1.5" />
+                            <text x={p.x} y={p.y - 8} textAnchor="middle" fill={variable.color} fontSize="7" fontWeight="600">
                               {variable.key === 'calories' ? p.value : variable.key === 'steps' ? `${(p.value / 1000).toFixed(1)}k` : variable.key === 'sleep' ? `${p.value}h` : variable.key === 'protein' ? `${p.value}g` : p.value}
                             </text>
                           </g>

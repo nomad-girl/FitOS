@@ -40,6 +40,7 @@ export default function DashboardPage() {
   const [recentWorkouts, setRecentWorkouts] = useState<{ id: string; session_date: string; notes: string | null; duration_minutes: number | null; total_volume_kg: number | null }[]>([])
   const [liveScore, setLiveScore] = useState<import('@/lib/weekly-score').WeeklyScoreData | null>(null)
   const [scoreContext, setScoreContext] = useState<{ sessionsDone: number; sessionsPlanned: number; avgCal: number | null; avgProt: number | null; avgSteps: number | null; avgSleep: number | null; calTarget: number | null; protTarget: number | null; stepGoal: number | null; sleepGoal: number | null } | null>(null)
+  const [prevCheckin, setPrevCheckin] = useState<import('@/lib/supabase/types').WeeklyCheckin | null>(null)
   const [, setSeeding] = useState(false)
   const [, setSeedDone] = useState(false)
   const [showChart, setShowChart] = useState(false)
@@ -198,6 +199,30 @@ export default function DashboardPage() {
   const logs = weeklyData?.logs ?? []
   const averages = weeklyData?.averages
   const checkin = weeklyData?.checkin
+
+  // Fetch previous weekly check-in for delta comparison
+  useEffect(() => {
+    if (!phase?.id || !checkin) return
+    ;(async () => {
+      try {
+        const supabase = createClient()
+        const userId = await getUserId()
+        const { data } = await supabase
+          .from('weekly_checkins')
+          .select('*')
+          .eq('user_id', userId)
+          .eq('phase_id', phase.id)
+          .lt('checkin_date', checkin.checkin_date)
+          .order('checkin_date', { ascending: false })
+          .limit(1)
+          .single()
+        if (data) setPrevCheckin(data as import('@/lib/supabase/types').WeeklyCheckin)
+      } catch {
+        // no previous checkin — that's fine
+      }
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase?.id, checkin?.checkin_date])
 
   // Current week info
   const weekStart = getWeekStartDate(new Date(), weekStartDay)
@@ -444,10 +469,20 @@ export default function DashboardPage() {
             <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)] mb-[18px] text-center">
               <div className="text-[.77rem] text-gray-400 mb-0.5">Peso</div>
               <div className="text-[1.25rem] font-extrabold text-gray-800">{checkin.weight_kg ?? '--'} kg</div>
+              {checkin.weight_kg != null && prevCheckin?.weight_kg != null && (
+                <div className={`text-[.75rem] font-semibold mt-0.5 ${checkin.weight_kg - prevCheckin.weight_kg < 0 ? 'text-success' : checkin.weight_kg - prevCheckin.weight_kg > 0 ? 'text-warning' : 'text-gray-400'}`}>
+                  {checkin.weight_kg - prevCheckin.weight_kg > 0 ? '▲' : checkin.weight_kg - prevCheckin.weight_kg < 0 ? '▼' : '='} {Math.abs(Math.round((checkin.weight_kg - prevCheckin.weight_kg) * 10) / 10)} kg
+                </div>
+              )}
             </div>
             <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)] mb-[18px] text-center">
               <div className="text-[.77rem] text-gray-400 mb-0.5">Cintura</div>
               <div className="text-[1.25rem] font-extrabold text-gray-800">{checkin.waist_cm ?? '--'} cm</div>
+              {checkin.waist_cm != null && prevCheckin?.waist_cm != null && (
+                <div className={`text-[.75rem] font-semibold mt-0.5 ${checkin.waist_cm - prevCheckin.waist_cm < 0 ? 'text-success' : checkin.waist_cm - prevCheckin.waist_cm > 0 ? 'text-warning' : 'text-gray-400'}`}>
+                  {checkin.waist_cm - prevCheckin.waist_cm > 0 ? '▲' : checkin.waist_cm - prevCheckin.waist_cm < 0 ? '▼' : '='} {Math.abs(Math.round((checkin.waist_cm - prevCheckin.waist_cm) * 10) / 10)} cm
+                </div>
+              )}
             </div>
             <div className="bg-card rounded-[var(--radius)] p-[18px_22px] shadow-[var(--shadow)] mb-[18px] text-center">
               <div className="text-[.77rem] text-gray-400 mb-0.5">Adherencia</div>

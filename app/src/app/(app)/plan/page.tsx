@@ -791,7 +791,10 @@ export default function PlanPage() {
                           {'\u270F\uFE0F'} Editar
                         </button>
                         {phase.status === 'active' && (
-                          <button className="inline-flex items-center justify-center gap-2 py-[7px] px-3.5 rounded-[var(--radius-sm)] font-semibold text-[.82rem] border-[1.5px] border-danger text-danger bg-transparent cursor-pointer hover:bg-danger-light">
+                          <button
+                            onClick={() => finishPhase(phase)}
+                            className="inline-flex items-center justify-center gap-2 py-[7px] px-3.5 rounded-[var(--radius-sm)] font-semibold text-[.82rem] border-[1.5px] border-danger text-danger bg-transparent cursor-pointer hover:bg-danger-light"
+                          >
                             Finalizar Fase
                           </button>
                         )}

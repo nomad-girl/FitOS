@@ -1390,6 +1390,7 @@ function ExerciseLibraryPanel({ onAddExercise }: { onAddExercise: (tmpl: HevyTem
   const [search, setSearch] = useState('')
   const [filterEquip, setFilterEquip] = useState('')
   const [filterMuscle, setFilterMuscle] = useState('')
+  const [filterPattern, setFilterPattern] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -1412,6 +1413,7 @@ function ExerciseLibraryPanel({ onAddExercise }: { onAddExercise: (tmpl: HevyTem
     if (search && !t.title.toLowerCase().includes(search.toLowerCase())) return false
     if (filterEquip && t.equipment !== filterEquip) return false
     if (filterMuscle && t.primary_muscle_group !== filterMuscle && !t.secondary_muscle_groups?.includes(filterMuscle)) return false
+    if (filterPattern && classifyMovementPattern(t.title, t.primary_muscle_group) !== filterPattern) return false
     return true
   })
 
@@ -1423,13 +1425,23 @@ function ExerciseLibraryPanel({ onAddExercise }: { onAddExercise: (tmpl: HevyTem
       <div className="font-bold text-base text-gray-800 mb-3">Libreria de Ejercicios</div>
 
       {/* Filters */}
-      <div className="flex gap-2 mb-3">
+      <div className="flex flex-wrap gap-2 mb-3">
+        <select
+          value={filterPattern}
+          onChange={(e) => setFilterPattern(e.target.value)}
+          className="flex-1 min-w-0 py-2 px-2.5 border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] text-[.8rem] text-gray-600 bg-white focus:border-primary focus:outline-none"
+        >
+          <option value="">Patron</option>
+          {Object.entries(movementPatternLabel).map(([k, v]) => (
+            <option key={k} value={k}>{v}</option>
+          ))}
+        </select>
         <select
           value={filterEquip}
           onChange={(e) => setFilterEquip(e.target.value)}
-          className="flex-1 py-2 px-2.5 border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] text-[.8rem] text-gray-600 bg-white focus:border-primary focus:outline-none"
+          className="flex-1 min-w-0 py-2 px-2.5 border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] text-[.8rem] text-gray-600 bg-white focus:border-primary focus:outline-none"
         >
-          <option value="">Equipamiento</option>
+          <option value="">Equipo</option>
           {availableEquipment.map((eq) => (
             <option key={eq} value={eq}>{eq}</option>
           ))}
@@ -1437,7 +1449,7 @@ function ExerciseLibraryPanel({ onAddExercise }: { onAddExercise: (tmpl: HevyTem
         <select
           value={filterMuscle}
           onChange={(e) => setFilterMuscle(e.target.value)}
-          className="flex-1 py-2 px-2.5 border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] text-[.8rem] text-gray-600 bg-white focus:border-primary focus:outline-none"
+          className="flex-1 min-w-0 py-2 px-2.5 border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] text-[.8rem] text-gray-600 bg-white focus:border-primary focus:outline-none"
         >
           <option value="">Musculos</option>
           {availableMuscles.map((m) => (
@@ -1503,6 +1515,28 @@ const muscleGroupIcon: Record<string, string> = {
   triceps: '\uD83D\uDCAA', abdominals: '\uD83E\uDDD8', lats: '\uD83D\uDCAA', biceps: '\uD83D\uDCAA',
   upper_back: '\uD83D\uDCAA', chest: '\uD83C\uDFCB\uFE0F', calves: '\uD83E\uDDB5', traps: '\uD83D\uDCAA',
   core: '\uD83E\uDDD8',
+}
+
+const movementPatternLabel: Record<string, string> = {
+  squat: 'Sentadilla', hinge: 'Bisagra', horizontal_push: 'Empuje Horizontal',
+  horizontal_pull: 'Tiron Horizontal', vertical_push: 'Empuje Vertical',
+  vertical_pull: 'Tiron Vertical', isolation: 'Aislamiento', core: 'Core',
+  carry: 'Acarreo', lunge: 'Zancada',
+}
+
+function classifyMovementPattern(title: string, muscle: string): string {
+  const t = title.toLowerCase()
+  if (/squat|sentadilla|goblet/.test(t)) return 'squat'
+  if (/lunge|zancada|split squat|bulgarian/.test(t)) return 'lunge'
+  if (/deadlift|hip thrust|good morning|swing|glute bridge|rdl|romanian/.test(t)) return 'hinge'
+  if (/bench press|push.?up|floor press|chest press|dip/.test(t)) return 'horizontal_push'
+  if (/row|seated row|cable row|barbell row|dumbbell row|inverted row|t-bar/.test(t)) return 'horizontal_pull'
+  if (/overhead press|shoulder press|military press|ohp|arnold press|pike push/.test(t)) return 'vertical_push'
+  if (/pull.?up|chin.?up|lat pull|pulldown/.test(t)) return 'vertical_pull'
+  if (/farmer|carry|suitcase|waiter/.test(t)) return 'carry'
+  if (/plank|crunch|sit.?up|leg raise|ab\s|russian twist|wood.?chop|hollow/.test(t) || muscle === 'abdominals' || muscle === 'core') return 'core'
+  if (/curl|extension|fly|raise|kickback|shrug|calf|wrist/.test(t)) return 'isolation'
+  return 'isolation'
 }
 
 function RoutineWizard({

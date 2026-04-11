@@ -282,6 +282,17 @@ export default function DashboardPage() {
     }
   }
 
+  // Find which day label corresponds to the check-in date
+  const checkinDayLabel: string | null = (() => {
+    if (!checkin?.checkin_date || !tableWeekStart) return null
+    for (let i = 0; i < 7; i++) {
+      const d = parseLocalDate(tableWeekStart)
+      d.setDate(d.getDate() + i)
+      if (dateToLocal(d) === checkin.checkin_date) return dayLabels[i]
+    }
+    return null
+  })()
+
   // Format table week range for display
   const tableWeekEnd = parseLocalDate(tableWeekStart)
   tableWeekEnd.setDate(tableWeekEnd.getDate() + 6)
@@ -736,9 +747,21 @@ export default function DashboardPage() {
                     <line key={i} x1="5" y1={10 + i * 42} x2="345" y2={10 + i * 42} stroke="#F3F4F6" strokeWidth="0.5" />
                   ))}
                   {/* Day labels */}
-                  {dayLabels.map((d, i) => (
-                    <text key={d} x={5 + i * (340 / 7) + (340 / 14)} y="198" textAnchor="middle" fill="#9CA3AF" fontSize="9" fontWeight="600">{d}</text>
-                  ))}
+                  {dayLabels.map((d, i) => {
+                    const cx = 5 + i * (340 / 7) + (340 / 14)
+                    const isCheckinDay = d === checkinDayLabel
+                    return (
+                      <g key={d}>
+                        <text x={cx} y="198" textAnchor="middle" fill={isCheckinDay ? '#0EA5E9' : '#9CA3AF'} fontSize="9" fontWeight={isCheckinDay ? '700' : '600'}>{d}</text>
+                        {isCheckinDay && (
+                          <>
+                            <line x1={cx} y1="10" x2={cx} y2="178" stroke="#0EA5E9" strokeWidth="0.7" strokeDasharray="3 3" opacity="0.35" />
+                            <text x={cx} y="190" textAnchor="middle" fill="#0EA5E9" fontSize="7" fontWeight="600">{'\u2713'} check-in</text>
+                          </>
+                        )}
+                      </g>
+                    )
+                  })}
 
                   {/* Plot each enabled variable */}
                   {([

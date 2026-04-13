@@ -586,6 +586,40 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {/* Mobile Score Card (hidden on lg where RightPanel is visible) */}
+        <div className="lg:hidden bg-gradient-to-br from-[#0f4d6e] to-[#175563] text-white rounded-[var(--radius)] p-[22px] mb-[18px] fade-in" style={{ animationDelay: '.15s' }}>
+          <div className="flex items-center gap-4">
+            <div className="flex-shrink-0">
+              <ScoreRing score={score ?? 0} label={score == null ? '--' : undefined} />
+            </div>
+            <div className="flex-1">
+              <div className="font-extrabold text-[1rem]">
+                {score != null
+                  ? score >= 85 ? '\u00A1Gran semana!' : score >= 70 ? 'Buena semana' : 'Semana regular'
+                  : 'Pendiente'}
+              </div>
+              <div className="text-[.78rem] opacity-70">Puntaje Semanal</div>
+              <div className="grid grid-cols-4 gap-1.5 mt-3">
+                {([
+                  { label: 'Entreno', key: 'training', emoji: '\uD83C\uDFCB\uFE0F' },
+                  { label: 'Nutri', key: 'nutrition', emoji: '\uD83C\uDF4E' },
+                  { label: 'Pasos', key: 'steps', emoji: '\uD83D\uDEB6' },
+                  { label: 'Sueno', key: 'sleep', emoji: '\uD83D\uDE34' },
+                ] as const).map((item) => {
+                  const val = scoreBreakdown && scoreBreakdown[item.key] != null ? scoreBreakdown[item.key] : null
+                  return (
+                    <div key={item.key} className="text-center bg-white/[.08] rounded-[8px] py-1.5 px-1">
+                      <div className="text-[.6rem] opacity-60">{item.emoji}</div>
+                      <div className="font-extrabold text-[.9rem]">{val != null ? `${val}%` : '--'}</div>
+                      <div className="text-[.55rem] opacity-50">{item.label}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* E. Daily Averages Table + Chart */}
         <div
           className="bg-card rounded-[var(--radius)] p-[24px_26px] shadow-[var(--shadow)] mb-[18px] overflow-x-auto fade-in"

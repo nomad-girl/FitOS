@@ -11,7 +11,7 @@ import { useWeeklyData } from '@/lib/hooks/useWeeklyData'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { createClient } from '@/lib/supabase/client'
 import { getUserId } from '@/lib/supabase/auth-cache'
-import { getCached, setCache } from '@/lib/cache'
+import { getCached, setCache, invalidateCache } from '@/lib/cache'
 import { dateToLocal, parseLocalDate } from '@/lib/date-utils'
 import { computeWeeklyScore } from '@/lib/weekly-score'
 import type { Insight } from '@/lib/supabase/types'
@@ -33,8 +33,8 @@ export default function DashboardPage() {
   const weekStartDay = profile?.week_start_day ?? 'saturday'
   const { phase, loading: phaseLoading } = useActivePhase()
   const [tableWeekOffset, setTableWeekOffset] = useState(0)
-  const { data: weeklyData, loading: weeklyLoading } = useWeeklyData(phase?.id, weekStartDay)
-  const { data: tableWeekData } = useWeeklyData(tableWeekOffset !== 0 ? phase?.id : undefined, weekStartDay, tableWeekOffset)
+  const { data: weeklyData, loading: weeklyLoading, refetch: refetchWeekly } = useWeeklyData(phase?.id, weekStartDay)
+  const { data: tableWeekData, refetch: refetchTable } = useWeeklyData(tableWeekOffset !== 0 ? phase?.id : undefined, weekStartDay, tableWeekOffset)
   const { data: prevWeekData } = useWeeklyData(phase?.id ?? undefined, weekStartDay, tableWeekOffset - 1)
   const [insights, setInsights] = useState<Insight[]>([])
   const [recentWorkouts, setRecentWorkouts] = useState<{ id: string; session_date: string; notes: string | null; duration_minutes: number | null; total_volume_kg: number | null }[]>([])
@@ -53,7 +53,19 @@ export default function DashboardPage() {
     fatigue: false,
     steps: false,
     sleep: false,
+    training: false,
   })
+
+  // Refresh dashboard data when a daily log is saved from the drawer
+  useEffect(() => {
+    const handler = () => {
+      invalidateCache('dashboard:')
+      refetchWeekly()
+      refetchTable()
+    }
+    window.addEventListener('daily-log-saved', handler)
+    return () => window.removeEventListener('daily-log-saved', handler)
+  }, [refetchWeekly, refetchTable])
 
   const fetchInsights = useCallback(async () => {
     if (!phase) return
@@ -195,10 +207,34 @@ export default function DashboardPage() {
 
   const loading = phaseLoading || weeklyLoading
 
+  // Check if there's a recent check-in (within the last 7 days) to suppress the banner
+  const [recentCheckin, setRecentCheckin] = useState<import('@/lib/supabase/types').WeeklyCheckin | null>(null)
+
+  useEffect(() => {
+    if (!phase?.id) return
+    ;(async () => {
+      const supabase = createClient()
+      const userId = await getUserId()
+      const sevenDaysAgo = new Date()
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+      const { data } = await supabase
+        .from('weekly_checkins')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('phase_id', phase.id)
+        .gte('created_at', sevenDaysAgo.toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single()
+      setRecentCheckin(data as import('@/lib/supabase/types').WeeklyCheckin | null)
+    })()
+  }, [phase?.id])
+
   // Compute derived data
   const logs = weeklyData?.logs ?? []
   const averages = weeklyData?.averages
-  const checkin = weeklyData?.checkin
+  // Use the current week's check-in, or fall back to any recent check-in (last 7 days)
+  const checkin = weeklyData?.checkin ?? recentCheckin
 
   // Fetch previous weekly check-in for delta comparison
   useEffect(() => {
@@ -609,7 +645,7 @@ export default function DashboardPage() {
               </thead>
               <tbody className="text-gray-600">
                 <tr className="border-b border-gray-50">
-                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Cal</td>
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">{'\uD83D\uDD25'} Cal</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.calories ?? '\u2014'}</td>
                   ))}
@@ -619,7 +655,7 @@ export default function DashboardPage() {
                   </td>
                 </tr>
                 <tr className="border-b border-gray-50">
-                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Prot</td>
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">{'\uD83E\uDD69'} Prot</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.protein_g ?? '\u2014'}</td>
                   ))}
@@ -629,7 +665,7 @@ export default function DashboardPage() {
                   </td>
                 </tr>
                 <tr className="border-b border-gray-50">
-                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Pasos</td>
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">{'\uD83D\uDEB6'} Pasos</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{formatSteps(logsByDay[d]?.steps ?? null) ?? '\u2014'}</td>
                   ))}
@@ -639,7 +675,7 @@ export default function DashboardPage() {
                   </td>
                 </tr>
                 <tr className="border-b border-gray-50">
-                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Sueno</td>
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">{'\uD83D\uDCA4'} Sueno</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center">{logsByDay[d]?.sleep_hours ?? '\u2014'}</td>
                   ))}
@@ -649,7 +685,7 @@ export default function DashboardPage() {
                   </td>
                 </tr>
                 <tr className="border-b border-gray-50">
-                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Energia</td>
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">{'\u26A1'} Energia</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center"><BatteryBar value={logsByDay[d]?.energy} color="#10B981" /></td>
                   ))}
@@ -659,7 +695,7 @@ export default function DashboardPage() {
                   </td>
                 </tr>
                 <tr className="border-b border-gray-50">
-                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Hambre</td>
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">{'\uD83C\uDF7D\uFE0F'} Hambre</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center"><BatteryBar value={logsByDay[d]?.hunger} color="#F59E0B" inverse /></td>
                   ))}
@@ -669,7 +705,7 @@ export default function DashboardPage() {
                   </td>
                 </tr>
                 <tr>
-                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Fatiga</td>
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">{'\uD83E\uDDD8'} Fatiga</td>
                   {dayLabels.map((d) => (
                     <td key={d} className="py-[7px] px-2 text-center"><BatteryBar value={logsByDay[d]?.fatigue_level} color="#EF4444" inverse /></td>
                   ))}
@@ -679,7 +715,7 @@ export default function DashboardPage() {
                   </td>
                 </tr>
                 <tr>
-                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">Entreno</td>
+                  <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">{'\uD83C\uDFCB\uFE0F'} Entreno</td>
                   {dayLabels.map((d) => {
                     const log = logsByDay[d]
                     if (!log?.training_variant) return <td key={d} className="py-[7px] px-2 text-center text-gray-300">{'\u2014'}</td>
@@ -722,6 +758,7 @@ export default function DashboardPage() {
                   { key: 'fatigue', label: 'Fatiga', color: '#EF4444' },
                   { key: 'steps', label: 'Pasos', color: '#06B6D4' },
                   { key: 'sleep', label: 'Sueno', color: '#6366F1' },
+                  { key: 'training', label: 'Entreno', color: '#F97316' },
                 ] as const).map((v) => (
                   <button
                     key={v.key}
@@ -772,6 +809,7 @@ export default function DashboardPage() {
                     { key: 'fatigue', color: '#EF4444', getValue: (log: typeof logs[0] | null) => log?.fatigue_level, scale: (v: number) => v / 5 },
                     { key: 'steps', color: '#06B6D4', getValue: (log: typeof logs[0] | null) => log?.steps, scale: (v: number) => Math.min(v / 20000, 1) },
                     { key: 'sleep', color: '#6366F1', getValue: (log: typeof logs[0] | null) => log?.sleep_hours, scale: (v: number) => Math.min(v / 10, 1) },
+                    { key: 'training', color: '#F97316', getValue: (log: typeof logs[0] | null) => log?.training_volume_kg, scale: (v: number) => Math.min(v / 15000, 1) },
                   ] as const).filter((v) => chartVars[v.key]).map((variable) => {
                     const colW = 340 / 7
                     const points: { x: number; y: number; value: number }[] = []
@@ -803,7 +841,7 @@ export default function DashboardPage() {
                           <g key={i}>
                             <circle cx={p.x} cy={p.y} r="3" fill={variable.color} stroke="white" strokeWidth="1.5" />
                             <text x={p.x} y={p.y - 8} textAnchor="middle" fill={variable.color} fontSize="7" fontWeight="600">
-                              {variable.key === 'calories' ? p.value : variable.key === 'steps' ? `${(p.value / 1000).toFixed(1)}k` : variable.key === 'sleep' ? `${p.value}h` : variable.key === 'protein' ? `${p.value}g` : p.value}
+                              {variable.key === 'calories' ? p.value : variable.key === 'steps' ? `${(p.value / 1000).toFixed(1)}k` : variable.key === 'sleep' ? `${p.value}h` : variable.key === 'protein' ? `${p.value}g` : variable.key === 'training' ? `${(p.value / 1000).toFixed(1)}t` : p.value}
                             </text>
                           </g>
                         ))}

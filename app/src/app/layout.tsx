@@ -29,6 +29,10 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "FitOS",
+    startupImage: "/icon.svg",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
   },
 };
 

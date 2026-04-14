@@ -70,8 +70,8 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
     const supabase = createClient()
 
     async function fetchExtra() {
+      const userId = await getUserId()
       const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
 
       setUserEmail(user?.email ?? null)
       setIsDemo(!user)

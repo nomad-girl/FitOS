@@ -15,6 +15,8 @@ import { getCached, setCache, invalidateCache } from '@/lib/cache'
 import { dateToLocal, parseLocalDate } from '@/lib/date-utils'
 import { computeWeeklyScore } from '@/lib/weekly-score'
 import type { Insight } from '@/lib/supabase/types'
+import { syncHevyWorkouts } from '@/lib/hevy/sync'
+import { backfillTrainingData } from '@/lib/hevy/backfill'
 
 const allDays = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
 const weekDayMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
@@ -58,6 +60,22 @@ export default function DashboardPage() {
     sleep: false,
     training: false,
   })
+
+  // One-time data fix: re-sync from Hevy for correct volume + PRs
+  useEffect(() => {
+    const fixKey = 'fitos:volume-fix-v4'
+    if (typeof window !== 'undefined' && !localStorage.getItem(fixKey)) {
+      getUserId().then(userId => {
+        syncHevyWorkouts(userId).then(() => {
+          localStorage.setItem(fixKey, Date.now().toString())
+          return backfillTrainingData(userId)
+        }).then(() => {
+          refetchWeekly()
+          refetchTable()
+        }).catch(() => {})
+      }).catch(() => {})
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Refresh dashboard data when a daily log is saved from the drawer
   useEffect(() => {

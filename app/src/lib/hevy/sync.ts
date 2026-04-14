@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/client'
 import { dateToLocal } from '@/lib/date-utils'
-import { classifyStimulus, classifyMuscleZone } from '@/lib/recovery'
+import { classifyStimulus } from '@/lib/recovery'
 
 // ─── Hevy API types ────────────────────────────────────────────────
 interface HevySet {
@@ -12,7 +12,6 @@ interface HevySet {
   duration_seconds: number | null
   rpe: number | null
   custom_metric: number | null
-  is_personal_record?: boolean
 }
 
 interface HevyExercise {
@@ -64,7 +63,6 @@ async function getOrCreateMapping(
   userId: string,
   hevyExercise: HevyExercise
 ): Promise<string | null> {
-  // Check if we already have a mapping for this Hevy exercise
   const { data: existing } = await supabase
     .from('exercise_mappings')
     .select('exercise_id')
@@ -72,11 +70,8 @@ async function getOrCreateMapping(
     .eq('hevy_exercise_id', hevyExercise.exercise_template_id)
     .single()
 
-  if (existing?.exercise_id) {
-    return existing.exercise_id
-  }
+  if (existing?.exercise_id) return existing.exercise_id
 
-  // Try to match by name (fuzzy: case-insensitive, trimmed)
   const normalizedTitle = hevyExercise.title.trim()
   const { data: matches } = await supabase
     .from('exercises')
@@ -87,7 +82,6 @@ async function getOrCreateMapping(
 
   const matchedExerciseId = matches?.[0]?.id ?? null
 
-  // Upsert the mapping
   await supabase.from('exercise_mappings').upsert(
     {
       user_id: userId,
@@ -102,8 +96,8 @@ async function getOrCreateMapping(
   return matchedExerciseId
 }
 
-// ─── Volume & PR helpers ──────────────────────────────────────────
-/** Calculate total volume matching Hevy: weight * reps for all sets.
+// ─── Volume helper ───────────────────────────────────────────────
+/** Calculate total volume: weight * reps for all sets.
  *  For bodyweight exercises (weight_kg=0 or null), uses userWeight. */
 function calcVolume(workout: HevyWorkout, userWeight: number): number {
   let total = 0
@@ -118,15 +112,49 @@ function calcVolume(workout: HevyWorkout, userWeight: number): number {
   return Math.round(total * 10) / 10
 }
 
-/** Count personal records across all sets */
-function countPRs(workout: HevyWorkout): number {
-  let count = 0
+// ─── PR detection from exercise history ──────────────────────────
+/** Detect PRs by comparing each exercise's best set against previous bests.
+ *  A PR = beating the previous best weight, or same weight with more reps. */
+function countPRsFromHistory(
+  workout: HevyWorkout,
+  exerciseBests: Map<string, { weight: number; reps: number }>
+): number {
+  let prCount = 0
+
   for (const ex of workout.exercises) {
+    // Find best working set in this workout (exclude warmups)
+    let bestWeight = 0
+    let bestReps = 0
     for (const set of ex.sets) {
-      if (set.is_personal_record) count++
+      if (set.type === 'warmup') continue
+      const w = set.weight_kg ?? 0
+      const r = set.reps ?? 0
+      if (w > bestWeight || (w === bestWeight && r > bestReps)) {
+        bestWeight = w
+        bestReps = r
+      }
+    }
+
+    if (bestWeight <= 0 && bestReps <= 0) continue
+
+    const key = ex.exercise_template_id
+    const prev = exerciseBests.get(key)
+
+    if (prev) {
+      // PR if we beat previous best weight, or same weight with more reps
+      if (bestWeight > prev.weight || (bestWeight === prev.weight && bestReps > prev.reps)) {
+        prCount++
+      }
+    }
+    // Note: first time doing an exercise is NOT a PR
+
+    // Update the running bests (for chronological processing)
+    if (!prev || bestWeight > prev.weight || (bestWeight === prev.weight && bestReps > prev.reps)) {
+      exerciseBests.set(key, { weight: bestWeight, reps: bestReps })
     }
   }
-  return count
+
+  return prCount
 }
 
 // ─── Main sync function ────────────────────────────────────────────
@@ -149,7 +177,7 @@ export async function syncHevyWorkouts(
       .order('checkin_date', { ascending: false })
       .limit(1)
       .single()
-    const userWeight = latestCheckin?.weight_kg ?? 60 // fallback 60kg
+    const userWeight = latestCheckin?.weight_kg ?? 60
 
     // Fetch first 3 pages (most recent workouts)
     const pagesToFetch = 3
@@ -163,9 +191,63 @@ export async function syncHevyWorkouts(
 
     onProgress?.(`Se encontraron ${allWorkouts.length} workouts. Sincronizando...`)
 
+    // Sort workouts chronologically (oldest first) so PRs build correctly
+    allWorkouts.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+
+    // Build exercise bests from DB history (workouts BEFORE the ones we're syncing)
+    const oldestDate = allWorkouts.length > 0
+      ? dateToLocal(new Date(allWorkouts[0].start_time))
+      : dateToLocal(new Date())
+
+    const { data: prHistory } = await supabase
+      .from('executed_sessions')
+      .select(`
+        session_date,
+        executed_exercises (
+          exercise_name,
+          executed_sets ( weight_kg, reps )
+        )
+      `)
+      .eq('user_id', userId)
+      .lt('session_date', oldestDate)
+      .order('session_date', { ascending: true })
+
+    // Build initial bests map from older sessions
+    const exerciseBests = new Map<string, { weight: number; reps: number }>()
+
+    // We need exercise_template_id but stored data uses exercise_name.
+    // Build a name→templateId mapping from current workouts
+    const nameToTemplateId = new Map<string, string>()
+    for (const w of allWorkouts) {
+      for (const ex of w.exercises) {
+        nameToTemplateId.set(ex.title, ex.exercise_template_id)
+      }
+    }
+
+    if (prHistory) {
+      for (const session of prHistory) {
+        for (const ex of (session.executed_exercises ?? []) as any[]) {
+          const templateId = nameToTemplateId.get(ex.exercise_name)
+          if (!templateId) continue
+          for (const s of (ex.executed_sets ?? []) as any[]) {
+            const w = s.weight_kg ?? 0
+            const r = s.reps ?? 0
+            const prev = exerciseBests.get(templateId)
+            if (!prev || w > prev.weight || (w === prev.weight && r > prev.reps)) {
+              exerciseBests.set(templateId, { weight: w, reps: r })
+            }
+          }
+        }
+      }
+    }
+
+    // Process workouts chronologically
     for (const workout of allWorkouts) {
       try {
-        // Check if already imported (by hevy_workout_id)
+        const recalcVolume = calcVolume(workout, userWeight)
+        const prCount = countPRsFromHistory(workout, exerciseBests)
+
+        // Check if already imported
         const { data: existingSession } = await supabase
           .from('executed_sessions')
           .select('id')
@@ -174,9 +256,7 @@ export async function syncHevyWorkouts(
           .single()
 
         if (existingSession) {
-          // Recalculate volume (with bodyweight) and PR count
-          const recalcVolume = calcVolume(workout, userWeight)
-          const prCount = countPRs(workout)
+          // Update volume and PR count
           const sessionDate = dateToLocal(new Date(workout.start_time))
           await Promise.all([
             supabase
@@ -193,18 +273,13 @@ export async function syncHevyWorkouts(
           continue
         }
 
-        // Calculate duration in minutes
+        // ─── New session ──────────────────────────────────────
         const startTime = new Date(workout.start_time)
         const endTime = new Date(workout.end_time)
         const durationMinutes = Math.round(
           (endTime.getTime() - startTime.getTime()) / 60000
         )
 
-        // Calculate total volume (all sets, including bodyweight @ userWeight)
-        const totalVolumeKg = calcVolume(workout, userWeight)
-        const prCount = countPRs(workout)
-
-        // Insert executed_session
         const sessionDate = dateToLocal(startTime)
         const { data: session, error: sessionError } = await supabase
           .from('executed_sessions')
@@ -213,7 +288,7 @@ export async function syncHevyWorkouts(
             hevy_workout_id: workout.id,
             session_date: sessionDate,
             duration_minutes: durationMinutes,
-            total_volume_kg: Math.round(totalVolumeKg * 10) / 10,
+            total_volume_kg: recalcVolume,
             notes: workout.title || null,
           })
           .select('id')
@@ -226,11 +301,7 @@ export async function syncHevyWorkouts(
 
         // Insert exercises & sets
         for (const hevyExercise of workout.exercises) {
-          const exerciseId = await getOrCreateMapping(
-            supabase,
-            userId,
-            hevyExercise
-          )
+          const exerciseId = await getOrCreateMapping(supabase, userId, hevyExercise)
 
           const { data: execExercise, error: exError } = await supabase
             .from('executed_exercises')
@@ -248,7 +319,6 @@ export async function syncHevyWorkouts(
             continue
           }
 
-          // Insert all sets (including warmups for accurate volume tracking)
           const allSets = hevyExercise.sets
           if (allSets.length > 0) {
             const setsToInsert = allSets.map((set, idx) => ({
@@ -270,7 +340,7 @@ export async function syncHevyWorkouts(
           }
         }
 
-        // ─── Enrich daily_log with training metrics ────────────────
+        // ─── Enrich daily_log ─────────────────────────────────
         const allNormalSets = workout.exercises.flatMap(ex =>
           ex.sets.filter(s => s.type !== 'warmup')
         )
@@ -278,12 +348,10 @@ export async function syncHevyWorkouts(
         const rpeAvg = rpesWithValues.length > 0
           ? Math.round((rpesWithValues.reduce((a, b) => a + b, 0) / rpesWithValues.length) * 10) / 10
           : null
-        const rpeMax = rpesWithValues.length > 0
-          ? Math.max(...rpesWithValues)
-          : null
+        const rpeMax = rpesWithValues.length > 0 ? Math.max(...rpesWithValues) : null
         const totalSets = allNormalSets.length
 
-        // Fetch muscle groups from exercise templates via our proxy
+        // Fetch muscle groups (best-effort)
         const muscleGroups: string[] = []
         try {
           for (const ex of workout.exercises) {
@@ -293,19 +361,14 @@ export async function syncHevyWorkouts(
             const res = await fetch(`/api/hevy?${params.toString()}`)
             if (res.ok) {
               const tmpl = await res.json()
-              if (tmpl.primary_muscle_group) {
-                muscleGroups.push(tmpl.primary_muscle_group)
-              }
+              if (tmpl.primary_muscle_group) muscleGroups.push(tmpl.primary_muscle_group)
             }
           }
-        } catch {
-          // non-critical: muscle groups are best-effort
-        }
+        } catch { /* non-critical */ }
 
         const uniqueMuscleGroups = [...new Set(muscleGroups)]
         const stimulus = classifyStimulus(rpeAvg, rpeMax, prCount)
 
-        // Upsert training fields into daily_log
         const { data: existingLog } = await supabase
           .from('daily_logs')
           .select('id')
@@ -315,7 +378,7 @@ export async function syncHevyWorkouts(
 
         const trainingFields = {
           training_name: workout.title || null,
-          training_volume_kg: totalVolumeKg,
+          training_volume_kg: recalcVolume,
           training_sets: totalSets,
           training_rpe_avg: rpeAvg,
           training_rpe_max: rpeMax,
@@ -325,18 +388,9 @@ export async function syncHevyWorkouts(
         }
 
         if (existingLog) {
-          await supabase
-            .from('daily_logs')
-            .update(trainingFields)
-            .eq('id', existingLog.id)
+          await supabase.from('daily_logs').update(trainingFields).eq('id', existingLog.id)
         } else {
-          await supabase
-            .from('daily_logs')
-            .insert({
-              user_id: userId,
-              log_date: sessionDate,
-              ...trainingFields,
-            })
+          await supabase.from('daily_logs').insert({ user_id: userId, log_date: sessionDate, ...trainingFields })
         }
 
         result.synced++
@@ -363,7 +417,6 @@ export async function syncHevyWorkouts(
     result.errors.push(msg)
     onProgress?.(`Error: ${msg}`)
 
-    // Update profile with error status
     await supabase
       .from('profiles')
       .update({ hevy_sync_status: 'error' })

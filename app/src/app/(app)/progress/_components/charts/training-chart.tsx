@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, LabelList,
+  Tooltip,
 } from 'recharts'
 
 interface Props {
@@ -16,22 +16,6 @@ const VARS = [
   { key: 'rpe', label: 'RPE', color: '#EF4444' },
   { key: 'prs', label: 'PRs', color: '#FBBF24' },
 ]
-
-// Custom label to render PR badge on top of volume bars
-function PRLabel(props: any) {
-  const { x, y, width, value } = props
-  if (!value || value <= 0) return null
-  const cx = x + width / 2
-  const cy = y - 12
-  return (
-    <g>
-      <circle cx={cx} cy={cy} r={9} fill="#FBBF24" stroke="#F59E0B" strokeWidth={1} />
-      <text x={cx} y={cy + 1} textAnchor="middle" dominantBaseline="central" fontSize={8} fontWeight="800" fill="#7C2D12">
-        {value}
-      </text>
-    </g>
-  )
-}
 
 export function TrainingChart({ dailyLogs }: Props) {
   const [activeVars, setActiveVars] = useState<Record<string, boolean>>({ volume: true, sets: true, rpe: true, prs: true })
@@ -56,6 +40,9 @@ export function TrainingChart({ dailyLogs }: Props) {
   const showRpe = activeVars.rpe
   const showPRs = activeVars.prs
 
+  // PRs need their own axis since they're small numbers (0-17)
+  const needRightAxis = showRpe || showSets || showPRs
+
   return (
     <div>
       <div className="flex flex-wrap gap-1.5 mb-3">
@@ -76,39 +63,39 @@ export function TrainingChart({ dailyLogs }: Props) {
         ))}
       </div>
 
-      <ResponsiveContainer width="100%" height={240}>
-        <ComposedChart data={data} margin={{ top: showPRs ? 22 : 5, right: showRpe || showSets ? 10 : 5, left: -15, bottom: 5 }}>
+      <ResponsiveContainer width="100%" height={220}>
+        <ComposedChart data={data} margin={{ top: 5, right: needRightAxis ? 10 : 5, left: -15, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
           <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#9CA3AF' }} />
           {showVolume && <YAxis yAxisId="vol" tick={{ fontSize: 10, fill: '#9CA3AF' }} />}
           {showRpe && <YAxis yAxisId="rpe" orientation="right" tick={{ fontSize: 10, fill: '#EF4444' }} domain={[0, 10]} />}
-          {showSets && !showRpe && <YAxis yAxisId="sets" orientation="right" tick={{ fontSize: 10, fill: '#10B981' }} />}
-          {showSets && showRpe && <YAxis yAxisId="sets" hide domain={['auto', 'auto']} />}
+          {showSets && <YAxis yAxisId="sets" hide domain={['auto', 'auto']} />}
+          {showPRs && <YAxis yAxisId="prs" hide domain={[0, 'auto']} />}
           <Tooltip
             contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #E5E7EB' }}
             formatter={(value: any, name: any) => {
               if (name === 'volume') return [`${Number(value).toLocaleString()} kg`, 'Volumen']
               if (name === 'sets') return [value, 'Series']
               if (name === 'rpe') return [value, 'RPE']
+              if (name === 'prs') return [value, 'PRs']
               return [value, name]
             }}
             labelFormatter={(label, payload) => {
               const item = payload?.[0]?.payload
-              const prVal = item?.prs
-              const prText = prVal > 0 ? ` — ${prVal} PR${prVal > 1 ? 's' : ''}` : ''
-              return item?.name ? `${label} — ${item.name}${prText}` : `${label}${prText}`
+              return item?.name ? `${label} — ${item.name}` : label
             }}
           />
           {showVolume && (
-            <Bar dataKey="volume" yAxisId="vol" fill="#F97316" opacity={0.35} radius={[3, 3, 0, 0]} name="volume">
-              {showPRs && <LabelList dataKey="prs" content={<PRLabel />} />}
-            </Bar>
+            <Bar dataKey="volume" yAxisId="vol" fill="#F97316" opacity={0.35} radius={[3, 3, 0, 0]} name="volume" />
           )}
           {showSets && (
             <Line type="monotone" dataKey="sets" yAxisId="sets" stroke="#10B981" strokeWidth={2} dot={{ r: 3, fill: '#10B981', stroke: 'white', strokeWidth: 1.5 }} connectNulls name="sets" />
           )}
           {showRpe && (
             <Line type="monotone" dataKey="rpe" yAxisId="rpe" stroke="#EF4444" strokeWidth={2} dot={{ r: 3, fill: '#EF4444', stroke: 'white', strokeWidth: 1.5 }} connectNulls name="rpe" />
+          )}
+          {showPRs && (
+            <Line type="monotone" dataKey="prs" yAxisId="prs" stroke="#FBBF24" strokeWidth={2} dot={{ r: 3.5, fill: '#FBBF24', stroke: '#F59E0B', strokeWidth: 1.5 }} connectNulls name="prs" />
           )}
         </ComposedChart>
       </ResponsiveContainer>

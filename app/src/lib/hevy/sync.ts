@@ -135,6 +135,26 @@ export async function syncHevyWorkouts(
           .single()
 
         if (existingSession) {
+          // Recalculate and update volume to match Hevy (includes all sets)
+          let recalcVolume = 0
+          for (const ex of workout.exercises) {
+            for (const set of ex.sets) {
+              if (set.weight_kg && set.reps) {
+                recalcVolume += set.weight_kg * set.reps
+              }
+            }
+          }
+          const sessionDate = dateToLocal(new Date(workout.start_time))
+          await supabase
+            .from('executed_sessions')
+            .update({ total_volume_kg: Math.round(recalcVolume * 10) / 10 })
+            .eq('id', existingSession.id)
+          // Also update daily_log volume
+          await supabase
+            .from('daily_logs')
+            .update({ training_volume_kg: Math.round(recalcVolume * 10) / 10 })
+            .eq('user_id', userId)
+            .eq('log_date', sessionDate)
           result.skipped++
           continue
         }
@@ -146,11 +166,11 @@ export async function syncHevyWorkouts(
           (endTime.getTime() - startTime.getTime()) / 60000
         )
 
-        // Calculate total volume (all sets except warmup)
+        // Calculate total volume (all sets, matching Hevy's calculation)
         let totalVolumeKg = 0
         for (const ex of workout.exercises) {
           for (const set of ex.sets) {
-            if (set.type !== 'warmup' && set.weight_kg && set.reps) {
+            if (set.weight_kg && set.reps) {
               totalVolumeKg += set.weight_kg * set.reps
             }
           }
@@ -200,10 +220,10 @@ export async function syncHevyWorkouts(
             continue
           }
 
-          // Insert sets (only "normal" sets, skip warmups)
-          const normalSets = hevyExercise.sets.filter(s => s.type === 'normal')
-          if (normalSets.length > 0) {
-            const setsToInsert = normalSets.map((set, idx) => ({
+          // Insert all sets (including warmups for accurate volume tracking)
+          const allSets = hevyExercise.sets
+          if (allSets.length > 0) {
+            const setsToInsert = allSets.map((set, idx) => ({
               executed_exercise_id: execExercise.id,
               set_number: idx + 1,
               weight_kg: set.weight_kg,

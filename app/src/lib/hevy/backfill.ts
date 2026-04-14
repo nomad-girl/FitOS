@@ -1,6 +1,6 @@
 /**
  * Backfill training metrics from executed_sessions into daily_logs.
- * Runs once to enrich historical data that was synced before the recovery system.
+ * Recalculates volume from actual sets (matching Hevy's total).
  */
 import { createClient } from '@/lib/supabase/client'
 import { classifyStimulus } from '@/lib/recovery'
@@ -8,8 +8,6 @@ import { classifyStimulus } from '@/lib/recovery'
 export async function backfillTrainingData(userId: string): Promise<number> {
   const supabase = createClient()
 
-  // Find all executed_sessions that haven't been backfilled yet
-  // (daily_logs where training_name is null but an executed_session exists for that date)
   const { data: sessions } = await supabase
     .from('executed_sessions')
     .select(`
@@ -43,7 +41,7 @@ export async function backfillTrainingData(userId: string): Promise<number> {
       executed_sets: Array<{ weight_kg: number | null; reps: number | null; rpe: number | null }>
     }>
 
-    // Compute metrics
+    // Compute metrics from all stored sets
     const allSets = exercises.flatMap(ex => ex.executed_sets ?? [])
     const rpes = allSets.map(s => s.rpe).filter((r): r is number => r != null)
     const rpeAvg = rpes.length > 0
@@ -53,32 +51,41 @@ export async function backfillTrainingData(userId: string): Promise<number> {
     const totalSets = allSets.length
     const stimulus = classifyStimulus(rpeAvg, rpeMax, 0)
 
+    // Recalculate volume from sets (all sets, matching Hevy)
+    let recalcVolume = 0
+    for (const set of allSets) {
+      if (set.weight_kg && set.reps) {
+        recalcVolume += set.weight_kg * set.reps
+      }
+    }
+    // Use recalculated if we have sets, otherwise fall back to stored total
+    const volume = recalcVolume > 0
+      ? Math.round(recalcVolume * 10) / 10
+      : session.total_volume_kg
+
     const trainingFields = {
       training_name: session.notes || 'Entrenamiento',
-      training_volume_kg: session.total_volume_kg, // Use stored total from executed_sessions directly
+      training_volume_kg: volume,
       training_sets: totalSets,
       training_rpe_avg: rpeAvg,
       training_rpe_max: rpeMax,
       training_stimulus: stimulus,
     }
 
-    // Check if daily_log exists for this date
+    // Always upsert (update volume even if training_name exists)
     const { data: existingLog } = await supabase
       .from('daily_logs')
-      .select('id, training_name')
+      .select('id')
       .eq('user_id', userId)
       .eq('log_date', session.session_date)
       .single()
 
     if (existingLog) {
-      // Only update if training_name is not already set
-      if (!existingLog.training_name) {
-        await supabase
-          .from('daily_logs')
-          .update(trainingFields)
-          .eq('id', existingLog.id)
-        updated++
-      }
+      await supabase
+        .from('daily_logs')
+        .update(trainingFields)
+        .eq('id', existingLog.id)
+      updated++
     } else {
       await supabase
         .from('daily_logs')

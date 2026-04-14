@@ -188,7 +188,7 @@ export default function RecoveryPage() {
       const today = todayLocal()
 
       // Backfill once ever (not blocking page load)
-      const backfillKey = 'fitos:backfill-done'
+      const backfillKey = 'fitos:backfill-v2'
       if (!backfilled && !localStorage.getItem(backfillKey)) {
         backfillTrainingData(userId).then(() => {
           localStorage.setItem(backfillKey, Date.now().toString())

@@ -16,3 +16,4 @@ Thumbs.db
 # Node (root level)
 node_modules/
 .vercel
+.next/

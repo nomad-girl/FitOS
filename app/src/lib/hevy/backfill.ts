@@ -55,7 +55,7 @@ export async function backfillTrainingData(userId: string): Promise<number> {
 
     const trainingFields = {
       training_name: session.notes || 'Entrenamiento',
-      training_volume_kg: session.total_volume_kg,
+      training_volume_kg: session.total_volume_kg, // Use stored total from executed_sessions directly
       training_sets: totalSets,
       training_rpe_avg: rpeAvg,
       training_rpe_max: rpeMax,

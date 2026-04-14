@@ -146,11 +146,11 @@ export async function syncHevyWorkouts(
           (endTime.getTime() - startTime.getTime()) / 60000
         )
 
-        // Calculate total volume (only "normal" sets)
+        // Calculate total volume (all sets except warmup)
         let totalVolumeKg = 0
         for (const ex of workout.exercises) {
           for (const set of ex.sets) {
-            if (set.type === 'normal' && set.weight_kg && set.reps) {
+            if (set.type !== 'warmup' && set.weight_kg && set.reps) {
               totalVolumeKg += set.weight_kg * set.reps
             }
           }
@@ -224,7 +224,7 @@ export async function syncHevyWorkouts(
 
         // ─── Enrich daily_log with training metrics ────────────────
         const allNormalSets = workout.exercises.flatMap(ex =>
-          ex.sets.filter(s => s.type === 'normal')
+          ex.sets.filter(s => s.type !== 'warmup')
         )
         const rpesWithValues = allNormalSets.map(s => s.rpe).filter((r): r is number => r != null)
         const rpeAvg = rpesWithValues.length > 0

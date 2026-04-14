@@ -176,19 +176,22 @@ function classifyEnergyState(score: number): EnergyState {
 function detectPhase(readiness: number, fatigue: number | null, trend: PerformanceTrend): Phase {
   const fatigueVal = fatigue ?? 3
 
-  // High readiness + performance going up = peak
-  if (readiness >= 80 && trend !== 'down') return 'peak'
+  // Very high readiness + not declining = peak performance window
+  if (readiness >= 78 && trend !== 'down') return 'peak'
 
-  // High readiness + moderate fatigue = accumulation
-  if (readiness >= 65 && fatigueVal <= 3) return 'accumulation'
+  // Good readiness = productive accumulation
+  if (readiness >= 65) return 'accumulation'
 
-  // Low readiness or high fatigue = fatigue
-  if (readiness < 50 || fatigueVal >= 4) return 'fatigue'
+  // Medium-low readiness with declining performance or high fatigue = needs deload
+  if (readiness < 55 && (trend === 'down' || fatigueVal >= 4)) return 'deload'
 
-  // Medium readiness + performance dropping = needs deload
-  if (readiness < 65 && trend === 'down') return 'deload'
+  // Low readiness or high fatigue = fatigue accumulating
+  if (readiness < 55 || fatigueVal >= 4) return 'fatigue'
 
-  return 'accumulation'
+  // Mid-range (55-64): check fatigue to differentiate
+  if (fatigueVal <= 2 && trend !== 'down') return 'accumulation'
+
+  return 'fatigue'
 }
 
 // ── Recommendations ─────────────────────────────────────────────────

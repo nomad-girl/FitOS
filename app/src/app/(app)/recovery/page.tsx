@@ -56,9 +56,8 @@ function CycleCurve({ phase, score, label }: { phase: Phase; score: number; labe
   const dotX = xs[idx]
   const dotY = ys[idx]
 
-  // Clean symmetric bell curve using a single cubic bezier approach
-  const cpOffset = (w - 2 * pad) * 0.18
-  const path = `M ${xs[0]},${ys[0]} C ${xs[0] + cpOffset},${curveTop} ${xs[2] - cpOffset * 1.2},${curveTop} ${xs[2]},${ys[2]} C ${xs[2] + cpOffset * 1.2},${curveTop} ${xs[4] - cpOffset},${curveTop} ${xs[4]},${ys[4]}`
+  // Smooth bell curve: quadratic through all 5 points
+  const path = `M ${xs[0]},${ys[0]} Q ${xs[1]},${curveTop - 4} ${xs[2]},${ys[2]} Q ${xs[3]},${curveTop - 4} ${xs[4]},${ys[4]}`
   const areaPath = `${path} L ${xs[4]},${h} L ${xs[0]},${h} Z`
 
   const color = phaseConfig[phase].color
@@ -188,9 +187,12 @@ export default function RecoveryPage() {
       const userId = await getUserId()
       const today = todayLocal()
 
-      // Backfill once
-      if (!backfilled) {
-        await backfillTrainingData(userId)
+      // Backfill once ever (not blocking page load)
+      const backfillKey = 'fitos:backfill-done'
+      if (!backfilled && !localStorage.getItem(backfillKey)) {
+        backfillTrainingData(userId).then(() => {
+          localStorage.setItem(backfillKey, Date.now().toString())
+        }).catch(() => {})
         setBackfilled(true)
       }
 
@@ -277,41 +279,7 @@ export default function RecoveryPage() {
       const result = computeRecovery(input)
       setRecovery(result)
 
-      // Save snapshot
-      await supabase.from('recovery_snapshots').upsert({
-        user_id: userId,
-        snapshot_date: today,
-        readiness_global: result.readinessGlobal,
-        readiness_upper: result.readinessUpper,
-        readiness_lower: result.readinessLower,
-        energy_score: result.energyScore,
-        phase_global: result.phaseGlobal,
-        phase_upper: result.phaseUpper,
-        phase_lower: result.phaseLower,
-        energy_state: result.energyState,
-        system_reading: result.systemReading,
-        recommendation: result.recommendation,
-        input_data: input as unknown as Record<string, unknown>,
-      }, { onConflict: 'user_id,snapshot_date' })
-
-      // History
-      const { data: snapshots } = await supabase
-        .from('recovery_snapshots')
-        .select('snapshot_date, readiness_global, readiness_upper, readiness_lower')
-        .eq('user_id', userId)
-        .gte('snapshot_date', dateToLocal(fourteenDaysAgo))
-        .order('snapshot_date', { ascending: true })
-
-      if (snapshots) {
-        setHistory(snapshots.map(s => ({
-          date: s.snapshot_date,
-          global: s.readiness_global ?? 0,
-          upper: s.readiness_upper ?? 0,
-          lower: s.readiness_lower ?? 0,
-        })))
-      }
-
-      // Recent training
+      // Show training immediately (don't wait for snapshot queries)
       const trainedLogs = last7.filter(l => l.training_name || l.training_stimulus)
       setRecentTraining(trainedLogs.map(l => ({
         log_date: l.log_date,
@@ -321,6 +289,40 @@ export default function RecoveryPage() {
         training_rpe_avg: l.training_rpe_avg,
         training_muscle_groups: l.training_muscle_groups,
       })))
+
+      // Save snapshot + fetch history in parallel (non-blocking for UI)
+      const [, { data: snapshots }] = await Promise.all([
+        supabase.from('recovery_snapshots').upsert({
+          user_id: userId,
+          snapshot_date: today,
+          readiness_global: result.readinessGlobal,
+          readiness_upper: result.readinessUpper,
+          readiness_lower: result.readinessLower,
+          energy_score: result.energyScore,
+          phase_global: result.phaseGlobal,
+          phase_upper: result.phaseUpper,
+          phase_lower: result.phaseLower,
+          energy_state: result.energyState,
+          system_reading: result.systemReading,
+          recommendation: result.recommendation,
+          input_data: input as unknown as Record<string, unknown>,
+        }, { onConflict: 'user_id,snapshot_date' }),
+        supabase
+          .from('recovery_snapshots')
+          .select('snapshot_date, readiness_global, readiness_upper, readiness_lower')
+          .eq('user_id', userId)
+          .gte('snapshot_date', dateToLocal(fourteenDaysAgo))
+          .order('snapshot_date', { ascending: true }),
+      ])
+
+      if (snapshots) {
+        setHistory(snapshots.map(s => ({
+          date: s.snapshot_date,
+          global: s.readiness_global ?? 0,
+          upper: s.readiness_upper ?? 0,
+          lower: s.readiness_lower ?? 0,
+        })))
+      }
     } catch (err) {
       console.error('Recovery fetch error:', err)
     } finally {

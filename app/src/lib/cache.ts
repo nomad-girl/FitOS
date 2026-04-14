@@ -7,7 +7,7 @@ type CacheEntry<T> = {
 }
 
 const cache = new Map<string, CacheEntry<unknown>>()
-const DEFAULT_TTL = 60 * 1000 // 1 minute
+const DEFAULT_TTL = 2 * 60 * 1000 // 2 minutes
 
 export function getCached<T>(key: string, ttl?: number): T | null {
   // Check in-memory first
@@ -40,8 +40,8 @@ export function getCached<T>(key: string, ttl?: number): T | null {
 export function setCache<T>(key: string, data: T, ttl?: number, persist?: boolean): void {
   const entry = { data, timestamp: Date.now() }
   cache.set(key, entry)
-  // Persist to localStorage if requested or if TTL > 5 minutes
-  if (persist || (ttl && ttl > 5 * 60 * 1000)) {
+  // Persist to localStorage for instant loads on return visits
+  if (persist !== false) {
     if (typeof window !== 'undefined') {
       try {
         localStorage.setItem(`fitos:cache:${key}`, JSON.stringify(entry))

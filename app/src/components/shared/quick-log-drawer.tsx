@@ -511,7 +511,8 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
             </div>
 
             {/* Entrenamiento (auto from Hevy or manual) */}
-            {trainingInfo ? (
+            {/* Auto-detected training from Hevy (read-only) */}
+            {trainingInfo && (
               <div className="mb-[18px] rounded-[var(--radius)] border-[1.5px] border-gray-200 p-3.5 bg-gray-50/50">
                 <div className="flex items-center justify-between mb-2">
                   <label className="text-[.77rem] text-gray-400">{'\uD83C\uDFCB\uFE0F'} Entrenamiento (Hevy)</label>
@@ -550,49 +551,6 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
                     {trainingInfo.muscleGroups.map((mg) => (
                       <span key={mg} className="text-[.65rem] bg-primary/10 text-primary-dark px-2 py-0.5 rounded-full">{mg}</span>
                     ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="mb-[18px]">
-                <label className="text-[.77rem] text-gray-400 block mb-1.5">{'\uD83C\uDFCB\uFE0F'} Entrenamiento</label>
-                <div className="flex gap-2 mb-2">
-                  {['A', 'B', 'C'].map((v) => (
-                    <button
-                      key={v}
-                      onClick={() => { setTrainingVariant(trainingVariant === v ? '' : v); markChanged() }}
-                      className={`flex-1 py-2 rounded-[var(--radius-sm)] border-[1.5px] font-semibold text-[.84rem] cursor-pointer transition-all duration-200 ${
-                        trainingVariant === v
-                          ? 'bg-primary text-white border-primary'
-                          : 'border-gray-200 text-gray-500 hover:border-primary hover:text-primary'
-                      }`}
-                    >
-                      {v}
-                    </button>
-                  ))}
-                </div>
-                {trainingVariant && (
-                  <div className="grid grid-cols-2 gap-2 fade-in">
-                    <div>
-                      <label className="text-[.72rem] text-gray-400 block mb-1">Volumen (kg)</label>
-                      <input
-                        type="number"
-                        placeholder="9500"
-                        value={trainingVolume}
-                        onChange={(e) => { setTrainingVolume(e.target.value); markChanged() }}
-                        className="w-full py-2.5 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] focus:border-primary focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[.72rem] text-gray-400 block mb-1">PRs</label>
-                      <input
-                        type="number"
-                        placeholder="0"
-                        value={prCount}
-                        onChange={(e) => { setPrCount(e.target.value); markChanged() }}
-                        className="w-full py-2.5 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] focus:border-primary focus:outline-none"
-                      />
-                    </div>
                   </div>
                 )}
               </div>

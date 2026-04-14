@@ -119,7 +119,7 @@ export function useWeeklyData(phaseId?: string | null, weekStartDay: string = 's
 
       const weeklyData: WeeklyData = { logs: validLogs, averages, checkin }
       setData(weeklyData)
-      setCache(cacheKey, weeklyData)
+      setCache(cacheKey, weeklyData, undefined, true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error fetching weekly data')
     } finally {

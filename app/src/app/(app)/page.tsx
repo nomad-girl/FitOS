@@ -906,18 +906,22 @@ export default function DashboardPage() {
                 const activeVars = variableDefs.filter(v => chartVars[v.key])
 
                 // Handle tap on a column to show tooltip
-                const handleColumnTap = (dayLabel: string, cx: number) => {
+                const handleColumnTap = (dayLabel: string, cx: number, colIdx: number) => {
                   const log = chartLogsByLabel[dayLabel]
                   if (!log) { setChartTooltip(null); return }
                   const values: { name: string; value: string; color: string }[] = []
+                  let minY = 190
                   for (const v of activeVars) {
                     const raw = v.getValue(log)
-                    if (raw != null) values.push({ name: v.label, value: v.format(raw), color: v.color })
+                    if (raw != null) {
+                      values.push({ name: v.label, value: v.format(raw), color: v.color })
+                      const y = 190 - v.scale(raw) * 175
+                      if (y < minY) minY = y
+                    }
                   }
                   if (values.length === 0) { setChartTooltip(null); return }
-                  // Toggle off if tapping same column
                   if (chartTooltip && chartTooltip.label === dayLabel) { setChartTooltip(null); return }
-                  setChartTooltip({ x: cx, y: 10, label: dayLabel, values })
+                  setChartTooltip({ x: cx, y: minY, label: dayLabel, values })
                 }
 
                 return (
@@ -950,7 +954,7 @@ export default function DashboardPage() {
                             height="210"
                             fill="transparent"
                             style={{ cursor: 'pointer' }}
-                            onClick={() => handleColumnTap(d, cx)}
+                            onClick={() => handleColumnTap(d, cx, i)}
                           />
                         )
                       })}
@@ -1003,13 +1007,14 @@ export default function DashboardPage() {
                       })}
                     </svg>
 
-                    {/* Floating tooltip card */}
+                    {/* Floating tooltip card — positioned ABOVE the chart */}
                     {chartTooltip && (
                       <div
                         className="absolute z-10 pointer-events-none"
                         style={{
                           left: `${Math.min(Math.max(chartTooltip.x - 60, 8), svgW - 128)}px`,
-                          top: '220px',
+                          top: `${Math.max(chartTooltip.y - 12, 0)}px`,
+                          transform: 'translateY(-100%)',
                         }}
                       >
                         <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 min-w-[120px]">

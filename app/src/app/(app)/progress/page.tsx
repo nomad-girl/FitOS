@@ -18,6 +18,23 @@ interface PRRecord {
   date: string
 }
 
+interface CheckinPoint {
+  date: string
+  label: string
+  weight_kg: number | null
+  waist_cm: number | null
+  hip_cm: number | null
+  thigh_cm: number | null
+  low_hip_cm: number | null
+  resting_hr: number | null
+  hrv: number | null
+  avg_calories: number | null
+  avg_protein: number | null
+  avg_steps: number | null
+  avg_sleep_hours: number | null
+  weekly_score: number | null
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────
 
 const weekDayMap: Record<string, number> = {
@@ -80,6 +97,11 @@ export default function ProgressPage() {
   const [prRecords, setPrRecords] = useState<PRRecord[]>([])
   const [gymAdherence, setGymAdherence] = useState<{ done: number; planned: number; percentage: number } | null>(null)
   const [weeklyScore, setWeeklyScore] = useState<WeeklyScoreData | null>(null)
+
+  // Check-in chart
+  const [checkinData, setCheckinData] = useState<CheckinPoint[]>([])
+  const [checkinVars, setCheckinVars] = useState<Record<string, boolean>>({ weight_kg: true, waist_cm: true })
+  const [checkinTooltip, setCheckinTooltip] = useState<{ x: number; y: number; label: string; values: { name: string; value: string; color: string }[] } | null>(null)
 
   // Milestones
   const [milestones, setMilestones] = useState<Milestone[]>([])
@@ -195,6 +217,25 @@ export default function ProgressPage() {
         }
         prs.sort((a, b) => b.weight - a.weight)
         setPrRecords(prs)
+      }
+
+      // ─── Weekly Check-ins (for charts) ─────────
+      const { data: checkins } = await supabase
+        .from('weekly_checkins')
+        .select('checkin_date, weight_kg, waist_cm, hip_cm, thigh_cm, low_hip_cm, resting_hr, hrv, avg_calories, avg_protein, avg_steps, avg_sleep_hours, weekly_score')
+        .eq('user_id', userId)
+        .order('checkin_date', { ascending: true })
+        .limit(52)
+
+      if (checkins && checkins.length > 0) {
+        setCheckinData(checkins.map(c => {
+          const d = new Date(c.checkin_date + 'T12:00:00')
+          return {
+            ...c,
+            date: c.checkin_date,
+            label: `${d.getDate()}/${d.getMonth() + 1}`,
+          }
+        }))
       }
 
       // ─── Milestones ────────────────────────────
@@ -402,7 +443,194 @@ export default function ProgressPage() {
               </div>
             </div>
 
-            {/* ═══ 4. RECORDS ═══ */}
+            {/* ═══ 4. WEEKLY CHECK-IN CHARTS ═══ */}
+            {checkinData.length >= 2 && (() => {
+              const varDefs = [
+                { key: 'weight_kg', label: 'Peso', color: '#0EA5E9', unit: 'kg', getValue: (c: CheckinPoint) => c.weight_kg },
+                { key: 'waist_cm', label: 'Cintura', color: '#F97316', unit: 'cm', getValue: (c: CheckinPoint) => c.waist_cm },
+                { key: 'hip_cm', label: 'Cadera', color: '#EC4899', unit: 'cm', getValue: (c: CheckinPoint) => c.hip_cm },
+                { key: 'thigh_cm', label: 'Muslo', color: '#8B5CF6', unit: 'cm', getValue: (c: CheckinPoint) => c.thigh_cm },
+                { key: 'low_hip_cm', label: 'Cadera baja', color: '#14B8A6', unit: 'cm', getValue: (c: CheckinPoint) => c.low_hip_cm },
+                { key: 'resting_hr', label: 'FC reposo', color: '#EF4444', unit: 'bpm', getValue: (c: CheckinPoint) => c.resting_hr },
+                { key: 'hrv', label: 'HRV', color: '#6366F1', unit: 'ms', getValue: (c: CheckinPoint) => c.hrv },
+                { key: 'avg_calories', label: 'Cal prom', color: '#F59E0B', unit: 'kcal', getValue: (c: CheckinPoint) => c.avg_calories },
+                { key: 'avg_protein', label: 'Prot prom', color: '#A855F7', unit: 'g', getValue: (c: CheckinPoint) => c.avg_protein },
+                { key: 'avg_steps', label: 'Pasos prom', color: '#06B6D4', unit: '', getValue: (c: CheckinPoint) => c.avg_steps },
+                { key: 'avg_sleep_hours', label: 'Sueño prom', color: '#3B82F6', unit: 'h', getValue: (c: CheckinPoint) => c.avg_sleep_hours },
+                { key: 'weekly_score', label: 'Score', color: '#10B981', unit: 'pts', getValue: (c: CheckinPoint) => c.weekly_score },
+              ]
+
+              // Only show vars that have at least 2 data points
+              const availableVars = varDefs.filter(v => checkinData.filter(c => v.getValue(c) != null).length >= 2)
+              const activeVars = availableVars.filter(v => checkinVars[v.key])
+
+              const numPoints = checkinData.length
+              const svgW = Math.max(350, numPoints * 40)
+              const svgH = 200
+              const colW = (svgW - 20) / numPoints
+
+              // For each active var, compute min/max for scaling
+              const varScales = activeVars.map(v => {
+                const values = checkinData.map(c => v.getValue(c)).filter((x): x is number => x != null)
+                const min = Math.min(...values)
+                const max = Math.max(...values)
+                const range = max - min || 1
+                return { ...v, min, max, range }
+              })
+
+              const handleTap = (idx: number, cx: number) => {
+                const c = checkinData[idx]
+                if (checkinTooltip && checkinTooltip.label === c.label) { setCheckinTooltip(null); return }
+                const values: { name: string; value: string; color: string }[] = []
+                let minY = svgH
+                for (const vs of varScales) {
+                  const raw = vs.getValue(c)
+                  if (raw != null) {
+                    values.push({ name: vs.label, value: `${raw}${vs.unit ? ' ' + vs.unit : ''}`, color: vs.color })
+                    const y = svgH - 30 - ((raw - vs.min) / vs.range) * (svgH - 50)
+                    if (y < minY) minY = y
+                  }
+                }
+                if (values.length === 0) { setCheckinTooltip(null); return }
+                setCheckinTooltip({ x: cx, y: minY, label: c.label, values })
+              }
+
+              return (
+                <div className="mb-6">
+                  <div className="text-[1.08rem] font-bold text-gray-800 mb-4 flex items-center gap-2">
+                    Evolucion Semanal
+                    <span className="text-[.77rem] text-gray-400 font-normal">{checkinData.length} check-ins</span>
+                  </div>
+
+                  {/* Variable toggles */}
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {availableVars.map(v => (
+                      <button
+                        key={v.key}
+                        onClick={() => setCheckinVars(prev => ({ ...prev, [v.key]: !prev[v.key] }))}
+                        className="text-[.72rem] font-semibold px-2.5 py-1 rounded-full border cursor-pointer transition-all flex items-center gap-1"
+                        style={{
+                          borderColor: checkinVars[v.key] ? v.color : '#E5E7EB',
+                          backgroundColor: checkinVars[v.key] ? `${v.color}15` : 'transparent',
+                          color: checkinVars[v.key] ? v.color : '#9CA3AF',
+                        }}
+                      >
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: checkinVars[v.key] ? v.color : '#D1D5DB' }} />
+                        {v.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {activeVars.length === 0 ? (
+                    <div className="bg-card rounded-[var(--radius)] p-6 shadow-[var(--shadow)] text-center text-gray-400 text-[.88rem]">
+                      Selecciona al menos una variable para ver el grafico
+                    </div>
+                  ) : (
+                    <div className="bg-card rounded-[var(--radius)] shadow-[var(--shadow)] p-[14px_16px]">
+                      <div className="relative overflow-x-auto" style={{ height: `${svgH + 40}px` }} onScroll={() => setCheckinTooltip(null)}>
+                        <svg width={svgW} height={svgH + 30} viewBox={`0 0 ${svgW} ${svgH + 30}`} className="overflow-visible">
+                          {/* Grid lines */}
+                          {[0, 1, 2, 3].map(i => (
+                            <line key={i} x1="10" y1={10 + i * ((svgH - 30) / 3)} x2={svgW - 10} y2={10 + i * ((svgH - 30) / 3)} stroke="#F3F4F6" strokeWidth="0.5" />
+                          ))}
+
+                          {/* Day labels */}
+                          {checkinData.map((c, i) => {
+                            const cx = 10 + i * colW + colW / 2
+                            const showLabel = numPoints <= 20 || i % Math.ceil(numPoints / 15) === 0 || i === numPoints - 1
+                            return showLabel ? (
+                              <text key={i} x={cx} y={svgH + 20} textAnchor="middle" fill="#9CA3AF" fontSize={numPoints > 20 ? '7' : '8'} fontWeight="600">{c.label}</text>
+                            ) : null
+                          })}
+
+                          {/* Tap columns */}
+                          {checkinData.map((_, i) => {
+                            const cx = 10 + i * colW + colW / 2
+                            return (
+                              <rect key={`t-${i}`} x={cx - colW / 2} y="0" width={colW} height={svgH} fill="transparent" style={{ cursor: 'pointer' }} onClick={() => handleTap(i, cx)} />
+                            )
+                          })}
+
+                          {/* Vertical highlight */}
+                          {checkinTooltip && (
+                            <line x1={checkinTooltip.x} y1="5" x2={checkinTooltip.x} y2={svgH - 10} stroke="#D1D5DB" strokeWidth="1" strokeDasharray="3,3" />
+                          )}
+
+                          {/* Lines + dots for each active variable */}
+                          {varScales.map(vs => {
+                            const points: { x: number; y: number; val: number }[] = []
+                            checkinData.forEach((c, i) => {
+                              const raw = vs.getValue(c)
+                              if (raw != null) {
+                                const normalized = (raw - vs.min) / vs.range
+                                points.push({
+                                  x: 10 + i * colW + colW / 2,
+                                  y: svgH - 30 - normalized * (svgH - 50),
+                                  val: raw,
+                                })
+                              }
+                            })
+                            if (points.length < 2) return null
+
+                            const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+
+                            // Delta badge: first vs last
+                            const first = points[0].val
+                            const last = points[points.length - 1].val
+                            const delta = last - first
+                            const deltaStr = delta >= 0 ? `+${delta.toFixed(1)}` : delta.toFixed(1)
+
+                            return (
+                              <g key={vs.key}>
+                                <path d={pathD} fill="none" stroke={vs.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
+                                {points.map((p, i) => (
+                                  <circle key={i} cx={p.x} cy={p.y} r={numPoints <= 14 ? 3.5 : 2.5} fill={vs.color} stroke="white" strokeWidth="1.5" />
+                                ))}
+                                {/* Value labels for <= 14 points */}
+                                {numPoints <= 14 && points.map((p, i) => (
+                                  <text key={`v-${i}`} x={p.x} y={p.y - 8} textAnchor="middle" fill={vs.color} fontSize="7" fontWeight="600">
+                                    {vs.key === 'avg_steps' ? `${(p.val / 1000).toFixed(1)}k` : Number.isInteger(p.val) ? p.val : p.val.toFixed(1)}
+                                  </text>
+                                ))}
+                                {/* Delta label at end of line */}
+                                <text x={points[points.length - 1].x + 6} y={points[points.length - 1].y + 3} fill={delta <= 0 && (vs.key === 'weight_kg' || vs.key.includes('cm') || vs.key === 'resting_hr') ? '#10B981' : delta > 0 && (vs.key === 'hrv' || vs.key === 'weekly_score') ? '#10B981' : delta === 0 ? '#9CA3AF' : '#EF4444'} fontSize="8" fontWeight="700" textAnchor="start">
+                                  {deltaStr}
+                                </text>
+                              </g>
+                            )
+                          })}
+                        </svg>
+
+                        {/* Floating tooltip */}
+                        {checkinTooltip && (
+                          <div
+                            className="absolute z-10 pointer-events-none"
+                            style={{
+                              left: `${Math.min(Math.max(checkinTooltip.x - 60, 8), svgW - 128)}px`,
+                              top: `${Math.max(checkinTooltip.y - 12, 0)}px`,
+                              transform: 'translateY(-100%)',
+                            }}
+                          >
+                            <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 min-w-[120px]">
+                              <p className="text-[10px] font-bold text-gray-500 mb-1">{checkinTooltip.label}</p>
+                              {checkinTooltip.values.map((v, i) => (
+                                <div key={i} className="flex items-center gap-1.5 text-[11px] leading-[18px]">
+                                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: v.color }} />
+                                  <span className="text-gray-500">{v.name}:</span>
+                                  <span className="font-semibold text-gray-800 ml-auto">{v.value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
+            {/* ═══ 5. RECORDS ═══ */}
             <div className="mb-6">
               <div className="text-[1.08rem] font-bold text-gray-800 mb-4 flex items-center gap-2">
                 Records Personales

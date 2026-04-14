@@ -42,21 +42,23 @@ function readinessColor(score: number): string {
 
 function CycleCurve({ phase, score, label }: { phase: Phase; score: number; label: string }) {
   const w = 360
-  const h = 160
-  const pad = 24
-  const curveTop = 20
-  const curveBottom = h - 40
+  const h = 90
+  const pad = 30
+  const curveTop = 14
+  const curveBottom = h - 24
 
-  // 5 control points: start(deload) → accumulation → peak → fatigue → end(deload)
+  // 4 points on a clean bell curve: deload(low) → accumulation(rising) → peak(top) → fatigue(falling) → deload(low)
   const xs = [pad, w * 0.25, w * 0.5, w * 0.75, w - pad]
-  const ys = [curveBottom, (curveTop + curveBottom) * 0.45, curveTop, (curveTop + curveBottom) * 0.45, curveBottom]
+  const ys = [curveBottom, curveTop + (curveBottom - curveTop) * 0.45, curveTop, curveTop + (curveBottom - curveTop) * 0.45, curveBottom]
 
   const phaseIdx: Record<Phase, number> = { deload: 0, accumulation: 1, peak: 2, fatigue: 3 }
   const idx = phaseIdx[phase]
   const dotX = xs[idx]
   const dotY = ys[idx]
 
-  const path = `M ${xs[0]},${ys[0]} C ${xs[0] + 50},${ys[0] - 40} ${xs[1] - 30},${ys[1] + 10} ${xs[1]},${ys[1]} S ${xs[2] - 30},${ys[2]} ${xs[2]},${ys[2]} S ${xs[3] - 20},${ys[3] + 10} ${xs[3]},${ys[3]} S ${xs[4] - 50},${ys[4] + 40} ${xs[4]},${ys[4]}`
+  // Clean symmetric bell curve using a single cubic bezier approach
+  const cpOffset = (w - 2 * pad) * 0.18
+  const path = `M ${xs[0]},${ys[0]} C ${xs[0] + cpOffset},${curveTop} ${xs[2] - cpOffset * 1.2},${curveTop} ${xs[2]},${ys[2]} C ${xs[2] + cpOffset * 1.2},${curveTop} ${xs[4] - cpOffset},${curveTop} ${xs[4]},${ys[4]}`
   const areaPath = `${path} L ${xs[4]},${h} L ${xs[0]},${h} Z`
 
   const color = phaseConfig[phase].color
@@ -67,11 +69,11 @@ function CycleCurve({ phase, score, label }: { phase: Phase; score: number; labe
       <svg viewBox={`0 0 ${w} ${h}`} className="w-full block">
         <defs>
           <linearGradient id={`curveGrad-${label}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity="0.2" />
-            <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+            <stop offset="0%" stopColor={color} stopOpacity="0.12" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.01" />
           </linearGradient>
           <filter id={`glow-${label}`}>
-            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feGaussianBlur stdDeviation="3" result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
               <feMergeNode in="SourceGraphic" />
@@ -82,24 +84,19 @@ function CycleCurve({ phase, score, label }: { phase: Phase; score: number; labe
         {/* Area fill */}
         <path d={areaPath} fill={`url(#curveGrad-${label})`} />
 
-        {/* Grid lines */}
-        {[0.25, 0.5, 0.75].map((pct, i) => (
-          <line key={i} x1={pad} y1={curveTop + (curveBottom - curveTop) * pct} x2={w - pad} y2={curveTop + (curveBottom - curveTop) * pct} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 4" />
-        ))}
-
         {/* Curve line */}
-        <path d={path} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
-        <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeOpacity="0.8" />
+        <path d={path} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="1.5" />
+        <path d={path} fill="none" stroke={color} strokeWidth="1.5" strokeOpacity="0.7" />
 
         {/* Phase labels */}
         {labels.map((lbl, i) => (
-          <text key={i} x={xs[i]} y={h - 8} fill={i === idx ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.25)'} fontSize="10" fontWeight={i === idx ? '700' : '500'} textAnchor="middle">{lbl}</text>
+          <text key={i} x={xs[i]} y={h - 4} fill={i === idx ? 'rgba(255,255,255,0.7)' : 'rgba(255,255,255,0.2)'} fontSize="8" fontWeight={i === idx ? '700' : '500'} textAnchor="middle">{lbl}</text>
         ))}
 
         {/* Dot with glow */}
-        <circle cx={dotX} cy={dotY} r="12" fill={color} fillOpacity="0.2" filter={`url(#glow-${label})`} />
-        <circle cx={dotX} cy={dotY} r="7" fill={color} stroke="white" strokeWidth="2.5" />
-        <text x={dotX} y={dotY - 16} fill="white" fontSize="13" fontWeight="800" textAnchor="middle">{score}</text>
+        <circle cx={dotX} cy={dotY} r="8" fill={color} fillOpacity="0.15" filter={`url(#glow-${label})`} />
+        <circle cx={dotX} cy={dotY} r="4.5" fill={color} stroke="white" strokeWidth="1.5" />
+        <text x={dotX} y={dotY - 10} fill="white" fontSize="10" fontWeight="700" textAnchor="middle">{score}</text>
       </svg>
     </div>
   )
@@ -107,7 +104,7 @@ function CycleCurve({ phase, score, label }: { phase: Phase; score: number; labe
 
 // ── Readiness Arc ───────────────────────────────────────────────────
 
-function ReadinessArc({ score, size = 140, label, phase }: { score: number; size?: number; label: string; phase: Phase }) {
+function ReadinessArc({ score, size = 120, label, phase }: { score: number; size?: number; label: string; phase: Phase }) {
   const r = (size - 16) / 2
   const circ = Math.PI * r // half circle
   const offset = circ - (score / 100) * circ
@@ -404,12 +401,12 @@ export default function RecoveryPage() {
       {/* Swipeable main area */}
       <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="px-5">
         {/* Arc + Phase */}
-        <div className="text-center pt-4 pb-2">
-          <ReadinessArc score={current.score} size={160} label={current.label} phase={current.phase} />
+        <div className="text-center pt-2 pb-1">
+          <ReadinessArc score={current.score} size={120} label={current.label} phase={current.phase} />
         </div>
 
         {/* Cycle Curve */}
-        <div className="bg-white/[.04] rounded-2xl p-4 pt-2 mb-4">
+        <div className="bg-white/[.04] rounded-xl px-3 py-2 mb-3">
           <CycleCurve phase={current.phase} score={current.score} label={activeTab} />
         </div>
 

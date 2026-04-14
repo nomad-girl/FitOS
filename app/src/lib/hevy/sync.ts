@@ -114,7 +114,7 @@ function calcVolume(workout: HevyWorkout, userWeight: number): number {
 
 // ─── PR detection from exercise history ──────────────────────────
 /** Detect PRs Hevy-style: per exercise + rep count.
- *  E.g. beating your best 12-rep weight AND best 8-rep weight = 2 PRs. */
+ *  A record = best weight at that rep count. First time = new record too. */
 function countPRsFromHistory(
   workout: HevyWorkout,
   exerciseBests: Map<string, { weight: number; reps: number }>
@@ -128,16 +128,16 @@ function countPRsFromHistory(
       const r = set.reps ?? 0
       if (r <= 0) continue
 
-      // Key: exercise + rep count (e.g. "TEMPLATE_ID:12")
       const key = `${ex.exercise_template_id}:${r}`
       const prev = exerciseBests.get(key)
 
-      if (prev && w > prev.weight) {
+      if (!prev) {
+        // First time at this rep count = new record
         prCount++
-      }
-
-      // Update best (first time is NOT a PR)
-      if (!prev || w > prev.weight) {
+        exerciseBests.set(key, { weight: w, reps: r })
+      } else if (w > prev.weight) {
+        // Beat previous best = new record
+        prCount++
         exerciseBests.set(key, { weight: w, reps: r })
       }
     }

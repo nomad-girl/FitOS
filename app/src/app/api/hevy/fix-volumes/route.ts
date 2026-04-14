@@ -71,7 +71,8 @@ export async function GET(request: NextRequest) {
     volume = Math.round(volume * 10) / 10
 
     // Calculate PRs — Hevy style: per exercise+rep count
-    // E.g. if you beat your best 12-rep weight AND your best 8-rep weight, that's 2 PRs
+    // A record = best weight you've ever lifted at that rep count for that exercise
+    // First time at a rep count IS a record (no previous mark to beat)
     let prCount = 0
     for (const ex of workout.exercises) {
       for (const set of ex.sets) {
@@ -79,16 +80,15 @@ export async function GET(request: NextRequest) {
         const w = set.weight_kg ?? 0
         const r = set.reps ?? 0
         if (r <= 0) continue
-        // Key: exercise + rep count (e.g. "TEMPLATE_ID:12" for 12-rep PR)
         const key = `${ex.exercise_template_id}:${r}`
         const prev = exerciseBests.get(key)
-        if (prev) {
-          if (w > prev.weight) {
-            prCount++
-          }
-        }
-        // Update best (even for first time — first time is NOT a PR)
-        if (!prev || w > prev.weight) {
+        if (!prev) {
+          // First time at this rep count = new record
+          prCount++
+          exerciseBests.set(key, { weight: w, reps: r })
+        } else if (w > prev.weight) {
+          // Beat previous best = new record
+          prCount++
           exerciseBests.set(key, { weight: w, reps: r })
         }
       }

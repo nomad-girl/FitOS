@@ -45,6 +45,8 @@ export default function DashboardPage() {
   const [, setSeedDone] = useState(false)
   const [showChart, setShowChart] = useState(false)
   const [expandedScoreKey, setExpandedScoreKey] = useState<string | null>(null)
+  const [chartPeriod, setChartPeriod] = useState<'1S' | '2S' | '1M' | '3M'>('1S')
+  const [chartLogs, setChartLogs] = useState<import('@/lib/supabase/types').DailyLog[]>([])
   const [chartVars, setChartVars] = useState<Record<string, boolean>>({
     calories: true,
     protein: true,
@@ -122,6 +124,32 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchRecentWorkouts()
   }, [fetchRecentWorkouts])
+
+  // Fetch chart data for selected period
+  useEffect(() => {
+    if (!showChart || chartPeriod === '1S') {
+      setChartLogs([]) // use weekly logs for 1S
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const supabase = createClient()
+        const userId = await getUserId()
+        const daysBack = chartPeriod === '2S' ? 14 : chartPeriod === '1M' ? 30 : 90
+        const from = new Date()
+        from.setDate(from.getDate() - daysBack)
+        const { data } = await supabase
+          .from('daily_logs')
+          .select('*')
+          .eq('user_id', userId)
+          .gte('log_date', dateToLocal(from))
+          .order('log_date', { ascending: true })
+        if (!cancelled && data) setChartLogs(data)
+      } catch { /* ignore */ }
+    })()
+    return () => { cancelled = true }
+  }, [showChart, chartPeriod])
 
   // Compute live weekly score from daily_logs + sessions
   const fetchLiveScore = useCallback(async () => {
@@ -789,6 +817,23 @@ export default function DashboardPage() {
           ) : (
             /* ── CHART VIEW ── */
             <div className="fade-in">
+              {/* Period selector */}
+              <div className="flex items-center gap-1 mb-3">
+                {(['1S', '2S', '1M', '3M'] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setChartPeriod(p)}
+                    className={`py-1 px-3 rounded-full text-[.72rem] font-semibold cursor-pointer border-[1.5px] transition-all duration-200 ${
+                      chartPeriod === p
+                        ? 'bg-primary text-white border-primary'
+                        : 'bg-transparent text-gray-400 border-gray-200 hover:border-primary hover:text-primary'
+                    }`}
+                  >
+                    {p === '1S' ? '1 Sem' : p === '2S' ? '2 Sem' : p === '1M' ? '1 Mes' : '3 Mes'}
+                  </button>
+                ))}
+              </div>
+
               {/* Variable toggles */}
               <div className="flex flex-wrap gap-1.5 mb-4">
                 {([
@@ -818,83 +863,107 @@ export default function DashboardPage() {
               </div>
 
               {/* SVG Line Chart */}
-              <div className="relative h-[200px] w-full">
-                <svg width="100%" height="100%" viewBox="0 0 350 200" preserveAspectRatio="xMidYMid meet" className="overflow-visible">
-                  {/* Grid lines */}
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <line key={i} x1="5" y1={10 + i * 42} x2="345" y2={10 + i * 42} stroke="#F3F4F6" strokeWidth="0.5" />
-                  ))}
-                  {/* Day labels */}
-                  {dayLabels.map((d, i) => {
-                    const cx = 5 + i * (340 / 7) + (340 / 14)
-                    const isCheckinDay = d === checkinDayLabel
-                    return (
-                      <g key={d}>
-                        <text x={cx} y="198" textAnchor="middle" fill={isCheckinDay ? '#0EA5E9' : '#9CA3AF'} fontSize="9" fontWeight={isCheckinDay ? '700' : '600'}>{d}</text>
-                        {isCheckinDay && (
-                          <>
-                            <line x1={cx} y1="10" x2={cx} y2="178" stroke="#0EA5E9" strokeWidth="0.7" strokeDasharray="3 3" opacity="0.35" />
-                            <text x={cx} y="190" textAnchor="middle" fill="#0EA5E9" fontSize="7" fontWeight="600">{'\u2713'} check-in</text>
-                          </>
-                        )}
-                      </g>
-                    )
-                  })}
+              {(() => {
+                // Build chart data points based on period
+                type ChartLog = typeof logs[0]
+                let chartDataLogs: ChartLog[]
+                let chartDayLabels: string[]
 
-                  {/* Plot each enabled variable */}
-                  {([
-                    { key: 'calories', color: '#0EA5E9', getValue: (log: typeof logs[0] | null) => log?.calories, scale: (v: number) => Math.min(v / 3000, 1) },
-                    { key: 'protein', color: '#8B5CF6', getValue: (log: typeof logs[0] | null) => log?.protein_g, scale: (v: number) => Math.min(v / 250, 1) },
-                    { key: 'energy', color: '#10B981', getValue: (log: typeof logs[0] | null) => log?.energy, scale: (v: number) => v / 5 },
-                    { key: 'hunger', color: '#F59E0B', getValue: (log: typeof logs[0] | null) => log?.hunger, scale: (v: number) => v / 5 },
-                    { key: 'fatigue', color: '#EF4444', getValue: (log: typeof logs[0] | null) => log?.fatigue_level, scale: (v: number) => v / 5 },
-                    { key: 'steps', color: '#06B6D4', getValue: (log: typeof logs[0] | null) => log?.steps, scale: (v: number) => Math.min(v / 20000, 1) },
-                    { key: 'sleep', color: '#6366F1', getValue: (log: typeof logs[0] | null) => log?.sleep_hours, scale: (v: number) => Math.min(v / 10, 1) },
-                    { key: 'training', color: '#F97316', getValue: (log: typeof logs[0] | null) => log?.training_volume_kg, scale: (v: number) => Math.min(v / 15000, 1) },
-                  ] as const).filter((v) => chartVars[v.key]).map((variable) => {
-                    const colW = 340 / 7
-                    const points: { x: number; y: number; value: number }[] = []
-                    dayLabels.forEach((d, i) => {
-                      const log = logsByDay[d]
-                      const raw = variable.getValue(log)
-                      if (raw != null) {
-                        const normalized = variable.scale(raw)
-                        points.push({
-                          x: 5 + i * colW + colW / 2,
-                          y: 170 - normalized * 160,
-                          value: raw,
+                if (chartPeriod === '1S') {
+                  // Use weekly table logs
+                  chartDataLogs = dayLabels.map(d => logsByDay[d]).filter((l): l is ChartLog => l != null)
+                  chartDayLabels = dayLabels
+                } else {
+                  // Use fetched longer-period logs
+                  chartDataLogs = chartLogs as ChartLog[]
+                  chartDayLabels = chartDataLogs.map(l => {
+                    const d = new Date(l.log_date + 'T12:00:00')
+                    return `${d.getDate()}/${d.getMonth() + 1}`
+                  })
+                }
+
+                const chartLogsByLabel: Record<string, ChartLog | null> = {}
+                if (chartPeriod === '1S') {
+                  dayLabels.forEach(d => { chartLogsByLabel[d] = logsByDay[d] })
+                } else {
+                  chartDataLogs.forEach((l, i) => { chartLogsByLabel[chartDayLabels[i]] = l })
+                }
+
+                const numPoints = chartDayLabels.length
+                const svgW = Math.max(350, numPoints * 28)
+                const showDotValues = numPoints <= 14
+
+                return (
+                  <div className="relative h-[220px] w-full overflow-x-auto">
+                    <svg width={svgW} height="220" viewBox={`0 0 ${svgW} 220`} className="overflow-visible">
+                      {/* Grid lines */}
+                      {[0, 1, 2, 3, 4].map((i) => (
+                        <line key={i} x1="5" y1={10 + i * 45} x2={svgW - 5} y2={10 + i * 45} stroke="#F3F4F6" strokeWidth="0.5" />
+                      ))}
+                      {/* Day labels */}
+                      {chartDayLabels.map((d, i) => {
+                        const colW = (svgW - 10) / numPoints
+                        const cx = 5 + i * colW + colW / 2
+                        const showLabel = numPoints <= 14 || i % Math.ceil(numPoints / 15) === 0 || i === numPoints - 1
+                        return showLabel ? (
+                          <text key={i} x={cx} y="215" textAnchor="middle" fill="#9CA3AF" fontSize={numPoints > 14 ? '7' : '9'} fontWeight="600">{d}</text>
+                        ) : null
+                      })}
+
+                      {/* Plot each enabled variable */}
+                      {([
+                        { key: 'calories', color: '#0EA5E9', getValue: (log: ChartLog | null) => log?.calories, scale: (v: number) => Math.min(v / 3000, 1) },
+                        { key: 'protein', color: '#8B5CF6', getValue: (log: ChartLog | null) => log?.protein_g, scale: (v: number) => Math.min(v / 250, 1) },
+                        { key: 'energy', color: '#10B981', getValue: (log: ChartLog | null) => log?.energy, scale: (v: number) => v / 5 },
+                        { key: 'hunger', color: '#F59E0B', getValue: (log: ChartLog | null) => log?.hunger, scale: (v: number) => v / 5 },
+                        { key: 'fatigue', color: '#EF4444', getValue: (log: ChartLog | null) => log?.fatigue_level, scale: (v: number) => v / 5 },
+                        { key: 'steps', color: '#06B6D4', getValue: (log: ChartLog | null) => log?.steps, scale: (v: number) => Math.min(v / 20000, 1) },
+                        { key: 'sleep', color: '#6366F1', getValue: (log: ChartLog | null) => log?.sleep_hours, scale: (v: number) => Math.min(v / 10, 1) },
+                        { key: 'training', color: '#F97316', getValue: (log: ChartLog | null) => log?.training_volume_kg, scale: (v: number) => Math.min(v / 15000, 1) },
+                      ] as const).filter((v) => chartVars[v.key]).map((variable) => {
+                        const colW = (svgW - 10) / numPoints
+                        const points: { x: number; y: number; value: number }[] = []
+                        chartDayLabels.forEach((d, i) => {
+                          const log = chartLogsByLabel[d]
+                          const raw = variable.getValue(log)
+                          if (raw != null) {
+                            const normalized = variable.scale(raw)
+                            points.push({
+                              x: 5 + i * colW + colW / 2,
+                              y: 190 - normalized * 175,
+                              value: raw,
+                            })
+                          }
                         })
-                      }
-                    })
 
-                    if (points.length < 1) return null
+                        if (points.length < 1) return null
 
-                    const pathD = points.length === 1
-                      ? ''
-                      : points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+                        const pathD = points.length === 1
+                          ? ''
+                          : points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
 
-                    return (
-                      <g key={variable.key}>
-                        {points.length > 1 && (
-                          <path d={pathD} fill="none" stroke={variable.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
-                        )}
-                        {points.map((p, i) => (
-                          <g key={i}>
-                            <circle cx={p.x} cy={p.y} r="3" fill={variable.color} stroke="white" strokeWidth="1.5" />
-                            <text x={p.x} y={p.y - 8} textAnchor="middle" fill={variable.color} fontSize="7" fontWeight="600">
-                              {variable.key === 'calories' ? p.value : variable.key === 'steps' ? `${(p.value / 1000).toFixed(1)}k` : variable.key === 'sleep' ? `${p.value}h` : variable.key === 'protein' ? `${p.value}g` : variable.key === 'training' ? `${(p.value / 1000).toFixed(1)}t` : p.value}
-                            </text>
+                        return (
+                          <g key={variable.key}>
+                            {points.length > 1 && (
+                              <path d={pathD} fill="none" stroke={variable.color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
+                            )}
+                            {points.map((p, i) => (
+                              <g key={i}>
+                                <circle cx={p.x} cy={p.y} r={showDotValues ? 3 : 2} fill={variable.color} stroke="white" strokeWidth="1.5" />
+                                {showDotValues && (
+                                  <text x={p.x} y={p.y - 8} textAnchor="middle" fill={variable.color} fontSize="7" fontWeight="600">
+                                    {variable.key === 'calories' ? p.value : variable.key === 'steps' ? `${(p.value / 1000).toFixed(1)}k` : variable.key === 'sleep' ? `${p.value}h` : variable.key === 'protein' ? `${p.value}g` : variable.key === 'training' ? `${(p.value / 1000).toFixed(1)}t` : p.value}
+                                  </text>
+                                )}
+                              </g>
+                            ))}
                           </g>
-                        ))}
-                      </g>
-                    )
-                  })}
-                </svg>
-              </div>
-
-              <div className="mt-2 text-[.72rem] text-gray-400 text-center">
-                Cada variable se normaliza a su escala (cal: 0-3000, 1-5 para energia/hambre/fatiga, pasos: 0-20k)
-              </div>
+                        )
+                      })}
+                    </svg>
+                  </div>
+                )
+              })()}
             </div>
           )}
         </div>

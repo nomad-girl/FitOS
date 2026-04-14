@@ -113,8 +113,8 @@ function calcVolume(workout: HevyWorkout, userWeight: number): number {
 }
 
 // ─── PR detection from exercise history ──────────────────────────
-/** Detect PRs by comparing each exercise's best set against previous bests.
- *  A PR = beating the previous best weight, or same weight with more reps. */
+/** Detect PRs Hevy-style: per exercise + rep count.
+ *  E.g. beating your best 12-rep weight AND best 8-rep weight = 2 PRs. */
 function countPRsFromHistory(
   workout: HevyWorkout,
   exerciseBests: Map<string, { weight: number; reps: number }>
@@ -122,35 +122,24 @@ function countPRsFromHistory(
   let prCount = 0
 
   for (const ex of workout.exercises) {
-    // Find best working set in this workout (exclude warmups)
-    let bestWeight = 0
-    let bestReps = 0
     for (const set of ex.sets) {
       if (set.type === 'warmup') continue
       const w = set.weight_kg ?? 0
       const r = set.reps ?? 0
-      if (w > bestWeight || (w === bestWeight && r > bestReps)) {
-        bestWeight = w
-        bestReps = r
-      }
-    }
+      if (r <= 0) continue
 
-    if (bestWeight <= 0 && bestReps <= 0) continue
+      // Key: exercise + rep count (e.g. "TEMPLATE_ID:12")
+      const key = `${ex.exercise_template_id}:${r}`
+      const prev = exerciseBests.get(key)
 
-    const key = ex.exercise_template_id
-    const prev = exerciseBests.get(key)
-
-    if (prev) {
-      // PR if we beat previous best weight, or same weight with more reps
-      if (bestWeight > prev.weight || (bestWeight === prev.weight && bestReps > prev.reps)) {
+      if (prev && w > prev.weight) {
         prCount++
       }
-    }
-    // Note: first time doing an exercise is NOT a PR
 
-    // Update the running bests (for chronological processing)
-    if (!prev || bestWeight > prev.weight || (bestWeight === prev.weight && bestReps > prev.reps)) {
-      exerciseBests.set(key, { weight: bestWeight, reps: bestReps })
+      // Update best (first time is NOT a PR)
+      if (!prev || w > prev.weight) {
+        exerciseBests.set(key, { weight: w, reps: r })
+      }
     }
   }
 
@@ -341,15 +330,15 @@ export async function syncHevyWorkouts(
         }
 
         // ─── Enrich daily_log ─────────────────────────────────
-        const allNormalSets = workout.exercises.flatMap(ex =>
-          ex.sets.filter(s => s.type !== 'warmup')
-        )
-        const rpesWithValues = allNormalSets.map(s => s.rpe).filter((r): r is number => r != null)
+        const allSetsFlat = workout.exercises.flatMap(ex => ex.sets)
+        const totalSets = allSetsFlat.length // Hevy counts all sets including warmups
+        // RPE from working sets only (exclude warmups)
+        const workingSets = allSetsFlat.filter(s => s.type !== 'warmup')
+        const rpesWithValues = workingSets.map(s => s.rpe).filter((r): r is number => r != null)
         const rpeAvg = rpesWithValues.length > 0
           ? Math.round((rpesWithValues.reduce((a, b) => a + b, 0) / rpesWithValues.length) * 10) / 10
           : null
         const rpeMax = rpesWithValues.length > 0 ? Math.max(...rpesWithValues) : null
-        const totalSets = allNormalSets.length
 
         // Fetch muscle groups (best-effort)
         const muscleGroups: string[] = []

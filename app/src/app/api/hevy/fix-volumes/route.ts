@@ -70,24 +70,27 @@ export async function GET(request: NextRequest) {
     }
     volume = Math.round(volume * 10) / 10
 
-    // Calculate PRs
+    // Calculate PRs — Hevy style: per exercise+rep count
+    // E.g. if you beat your best 12-rep weight AND your best 8-rep weight, that's 2 PRs
     let prCount = 0
     for (const ex of workout.exercises) {
-      let bestW = 0, bestR = 0
       for (const set of ex.sets) {
         if (set.type === 'warmup') continue
         const w = set.weight_kg ?? 0
         const r = set.reps ?? 0
-        if (w > bestW || (w === bestW && r > bestR)) { bestW = w; bestR = r }
-      }
-      if (bestW <= 0 && bestR <= 0) continue
-      const key = ex.exercise_template_id
-      const prev = exerciseBests.get(key)
-      if (prev && (bestW > prev.weight || (bestW === prev.weight && bestR > prev.reps))) {
-        prCount++
-      }
-      if (!prev || bestW > prev.weight || (bestW === prev.weight && bestR > prev.reps)) {
-        exerciseBests.set(key, { weight: bestW, reps: bestR })
+        if (r <= 0) continue
+        // Key: exercise + rep count (e.g. "TEMPLATE_ID:12" for 12-rep PR)
+        const key = `${ex.exercise_template_id}:${r}`
+        const prev = exerciseBests.get(key)
+        if (prev) {
+          if (w > prev.weight) {
+            prCount++
+          }
+        }
+        // Update best (even for first time — first time is NOT a PR)
+        if (!prev || w > prev.weight) {
+          exerciseBests.set(key, { weight: w, reps: r })
+        }
       }
     }
 
@@ -110,11 +113,15 @@ export async function GET(request: NextRequest) {
         .eq('id', session.id)
     }
 
+    // Count all sets (including warmups — matching Hevy)
+    const totalSets = workout.exercises.reduce((sum: number, ex: any) => sum + ex.sets.length, 0)
+
     // Update daily_logs
     await supabase
       .from('daily_logs')
       .update({
         training_volume_kg: volume,
+        training_sets: totalSets,
         pr_count: prCount > 0 ? prCount : null,
       })
       .eq('user_id', userId)

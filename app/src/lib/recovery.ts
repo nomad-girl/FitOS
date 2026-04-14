@@ -217,25 +217,66 @@ function readinessLabel(score: number): string {
 function generateSystemReading(input: RecoveryInput, output: Omit<RecoveryOutput, 'systemReading' | 'recommendation'>): string {
   const parts: string[] = []
 
-  parts.push(`Readiness global ${readinessLabel(output.readinessGlobal).toLowerCase()} (${output.readinessGlobal}).`)
-
-  if (output.phaseUpper !== output.phaseLower) {
-    parts.push(`Upper en ${phaseLabel[output.phaseUpper].toLowerCase()}, lower en ${phaseLabel[output.phaseLower].toLowerCase()}.`)
-  } else {
-    parts.push(`Ambos trenes en ${phaseLabel[output.phaseUpper].toLowerCase()}.`)
+  // Data quality note
+  const hasSubjectiveData = input.energy != null || input.fatigueGlobal != null || input.mood != null
+  if (!hasSubjectiveData) {
+    parts.push('Sin registro de hoy — usando valores neutros.')
   }
 
+  // Global state with numbers
+  parts.push(`Readiness global ${readinessLabel(output.readinessGlobal).toLowerCase()} (${output.readinessGlobal}/100).`)
+
+  // Zone comparison with actual fatigue values
+  if (output.phaseUpper !== output.phaseLower) {
+    parts.push(`Upper en ${phaseLabel[output.phaseUpper].toLowerCase()} (${output.readinessUpper}), lower en ${phaseLabel[output.phaseLower].toLowerCase()} (${output.readinessLower}).`)
+  } else {
+    parts.push(`Ambos trenes en ${phaseLabel[output.phaseUpper].toLowerCase()} (U:${output.readinessUpper} / L:${output.readinessLower}).`)
+  }
+
+  // Specific subjective data insights
+  if (input.energy != null && input.energy <= 2) {
+    parts.push(`Energía baja (${input.energy}/5).`)
+  }
+  if (input.sleepHours != null && input.sleepHours < 6.5) {
+    parts.push(`Sueño corto (${input.sleepHours}h).`)
+  }
+  if (input.fatigueUpper != null && input.fatigueUpper >= 4) {
+    parts.push(`Upper muy cargado (${input.fatigueUpper}/5).`)
+  }
+  if (input.fatigueLower != null && input.fatigueLower >= 4) {
+    parts.push(`Lower muy cargado (${input.fatigueLower}/5).`)
+  }
+
+  // Energy state with cause
   if (output.energyState === 'low' || output.energyState === 'very_low') {
     const isLowFuel = (input.hunger ?? 3) >= 4 && (input.energy ?? 3) <= 2
     if (isLowFuel) {
-      parts.push('Posible falta de combustible: energía baja con hambre alta.')
+      parts.push(`Posible falta de combustible: energía ${input.energy}/5 con hambre ${input.hunger}/5.`)
+    } else if (input.caloriesToday != null && input.caloriesAvg7d != null && input.caloriesToday < input.caloriesAvg7d * 0.85) {
+      parts.push(`Calorías por debajo del promedio (${input.caloriesToday} vs ${input.caloriesAvg7d} avg).`)
     } else {
-      parts.push(`Estado energético ${energyLabel[output.energyState].toLowerCase()}.`)
+      parts.push(`Estado energético ${energyLabel[output.energyState].toLowerCase()} (${output.energyScore}/100).`)
     }
   }
 
+  // Training load context
   if (input.consecutiveTrainingDays >= 3) {
-    parts.push(`${input.consecutiveTrainingDays} días seguidos de entreno.`)
+    parts.push(`${input.consecutiveTrainingDays} días seguidos de entreno — acumulando carga.`)
+  }
+  if (input.trainedYesterday) {
+    const zones: string[] = []
+    if (input.trainedUpperYesterday) zones.push('upper')
+    if (input.trainedLowerYesterday) zones.push('lower')
+    if (zones.length > 0) parts.push(`Ayer entrenaste ${zones.join(' y ')}.`)
+  }
+
+  // Performance trends
+  if (input.performanceUpper === 'down' && input.performanceLower === 'down') {
+    parts.push('Rendimiento bajando en ambos trenes.')
+  } else if (input.performanceUpper === 'down') {
+    parts.push('Rendimiento upper en descenso.')
+  } else if (input.performanceLower === 'down') {
+    parts.push('Rendimiento lower en descenso.')
   }
 
   return parts.join(' ')
@@ -244,37 +285,60 @@ function generateSystemReading(input: RecoveryInput, output: Omit<RecoveryOutput
 function generateRecommendation(input: RecoveryInput, output: Omit<RecoveryOutput, 'systemReading' | 'recommendation'>): string {
   const recs: string[] = []
 
-  // Zone-specific recommendations
+  // Zone-specific recommendations with context
   if (output.readinessUpper >= 65 && output.readinessLower < 50) {
-    recs.push('Upper push (intenso). Lower deload o movilidad.')
+    recs.push(`Upper listo para empujar (${output.readinessUpper}). Lower necesita deload o movilidad (${output.readinessLower}).`)
   } else if (output.readinessLower >= 65 && output.readinessUpper < 50) {
-    recs.push('Lower push (intenso). Upper deload o movilidad.')
+    recs.push(`Lower listo para empujar (${output.readinessLower}). Upper necesita deload (${output.readinessUpper}).`)
   } else if (output.readinessUpper >= 80 && output.readinessLower >= 80) {
-    recs.push('Ambos trenes listos para intensidad alta.')
+    recs.push('Ambos trenes en óptimo. Día ideal para intensidad alta o PRs.')
   } else if (output.readinessUpper >= 50 && output.readinessLower >= 50) {
-    recs.push('Hipertrofia moderada, evitar RPE extremo.')
+    recs.push('Readiness medio. Hipertrofia con RPE moderado (6-7).')
   } else {
-    recs.push('Sesión liviana o descanso activo.')
+    recs.push('Readiness bajo. Sesión liviana, movilidad, o descanso activo.')
   }
 
-  // Energy recommendations
-  if (output.energyState === 'low' || output.energyState === 'very_low') {
-    const isLowFuel = (input.hunger ?? 3) >= 4
-    if (isLowFuel) {
-      recs.push('Aumentar calorías hoy (+10-15%).')
+  // Same-zone penalty
+  if (input.trainedUpperYesterday && output.readinessUpper < 70) {
+    recs.push('Evitar upper intenso hoy — entrenaste esa zona ayer.')
+  }
+  if (input.trainedLowerYesterday && output.readinessLower < 70) {
+    recs.push('Evitar lower intenso hoy — entrenaste esa zona ayer.')
+  }
+
+  // Energy/nutrition recommendations with numbers
+  if (output.energyState === 'very_low') {
+    if ((input.hunger ?? 3) >= 4) {
+      recs.push(`Prioridad: comer más. Hambre alta (${input.hunger}/5) con energía baja.`)
     } else {
-      recs.push('Priorizar descanso y nutrición.')
+      recs.push('Energía muy baja. Considerar día off o solo movilidad.')
+    }
+  } else if (output.energyState === 'low') {
+    if (input.caloriesToday != null && input.caloriesAvg7d != null && input.caloriesToday < input.caloriesAvg7d * 0.85) {
+      recs.push(`Subir calorías: ${input.caloriesToday} hoy vs ${input.caloriesAvg7d} promedio.`)
     }
   }
 
-  // Consecutive training penalty
-  if (input.consecutiveTrainingDays >= 3) {
-    recs.push('Considerar día de descanso activo.')
+  // Sleep
+  if (input.sleepHours != null && input.sleepHours < 6) {
+    recs.push(`Solo ${input.sleepHours}h de sueño. No es día para máximos.`)
   }
 
-  // Rest days ahead = can push harder
-  if (input.daysUntilNextTraining != null && input.daysUntilNextTraining >= 2) {
-    recs.push('Podés empujar más: varios días de descanso por delante.')
+  // Consecutive training
+  if (input.consecutiveTrainingDays >= 4) {
+    recs.push(`${input.consecutiveTrainingDays} días seguidos entrenando. Día de descanso activo recomendado.`)
+  } else if (input.consecutiveTrainingDays === 3) {
+    recs.push('3 días seguidos de entreno. Si entrenás, bajar volumen.')
+  }
+
+  // Rest days ahead
+  if (input.daysUntilNextTraining != null && input.daysUntilNextTraining >= 2 && output.readinessGlobal >= 60) {
+    recs.push(`${input.daysUntilNextTraining} días de descanso por delante — podés empujar más.`)
+  }
+
+  // Mood
+  if (input.mood != null && input.mood <= 2) {
+    recs.push('Ánimo bajo. Elegir un entreno que te guste, no el más duro.')
   }
 
   return recs.join(' ')

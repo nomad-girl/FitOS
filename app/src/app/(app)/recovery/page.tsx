@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getUserId } from '@/lib/supabase/auth-cache'
 import { todayLocal, dateToLocal } from '@/lib/date-utils'
@@ -13,14 +13,15 @@ import {
   type Phase,
   type EnergyState,
 } from '@/lib/recovery'
+import { backfillTrainingData } from '@/lib/hevy/backfill'
 
-// ── Phase / energy visual config ────────────────────────────────────
+// ── Visual Config ───────────────────────────────────────────────────
 
-const phaseConfig: Record<Phase, { label: string; color: string; icon: string; angle: number }> = {
-  accumulation: { label: 'Acumulacion', color: '#3B82F6', icon: '\u2197\uFE0F', angle: 45 },
-  peak:         { label: 'Peak',        color: '#10B981', icon: '\u2600\uFE0F', angle: 90 },
-  fatigue:      { label: 'Fatiga',      color: '#F59E0B', icon: '\u2198\uFE0F', angle: 135 },
-  deload:       { label: 'Deload',      color: '#8B5CF6', icon: '\uD83C\uDF19', angle: 180 },
+const phaseConfig: Record<Phase, { label: string; color: string; emoji: string }> = {
+  accumulation: { label: 'Acumulacion', color: '#3B82F6', emoji: '\u2197\uFE0F' },
+  peak:         { label: 'Peak',        color: '#10B981', emoji: '\u2600\uFE0F' },
+  fatigue:      { label: 'Fatiga',      color: '#F59E0B', emoji: '\u2198\uFE0F' },
+  deload:       { label: 'Deload',      color: '#8B5CF6', emoji: '\uD83C\uDF19' },
 }
 
 const energyConfig: Record<EnergyState, { label: string; color: string; pct: number }> = {
@@ -37,92 +38,112 @@ function readinessColor(score: number): string {
   return '#EF4444'
 }
 
-// ── Cycle Curve SVG ─────────────────────────────────────────────────
+// ── Cycle Curve (fullscreen, smooth) ────────────────────────────────
 
-function CycleCurve({ phase, score }: { phase: Phase; score: number }) {
-  // Draw a smooth curve representing the cycle, with a dot at the current position
-  const w = 320
-  const h = 120
-  const pad = 20
+function CycleCurve({ phase, score, label }: { phase: Phase; score: number; label: string }) {
+  const w = 360
+  const h = 160
+  const pad = 24
+  const curveTop = 20
+  const curveBottom = h - 40
 
-  // The curve: accumulation → peak → fatigue → deload
-  const points = [
-    { x: pad, y: h - pad },         // deload (bottom-left)
-    { x: w * 0.25, y: h * 0.4 },    // accumulation (rising)
-    { x: w * 0.5, y: pad },          // peak (top)
-    { x: w * 0.75, y: h * 0.4 },    // fatigue (falling)
-    { x: w - pad, y: h - pad },      // deload (bottom-right)
-  ]
+  // 5 control points: start(deload) → accumulation → peak → fatigue → end(deload)
+  const xs = [pad, w * 0.25, w * 0.5, w * 0.75, w - pad]
+  const ys = [curveBottom, (curveTop + curveBottom) * 0.45, curveTop, (curveTop + curveBottom) * 0.45, curveBottom]
 
-  // Position on curve based on phase
-  const phasePositions: Record<Phase, number> = {
-    deload: 0,
-    accumulation: 1,
-    peak: 2,
-    fatigue: 3,
-  }
-  const idx = phasePositions[phase]
-  const dot = points[idx]
+  const phaseIdx: Record<Phase, number> = { deload: 0, accumulation: 1, peak: 2, fatigue: 3 }
+  const idx = phaseIdx[phase]
+  const dotX = xs[idx]
+  const dotY = ys[idx]
 
-  const path = `M ${points[0].x},${points[0].y} C ${points[0].x + 40},${points[0].y - 30} ${points[1].x - 20},${points[1].y} ${points[1].x},${points[1].y} S ${points[2].x - 30},${points[2].y} ${points[2].x},${points[2].y} S ${points[3].x - 20},${points[3].y} ${points[3].x},${points[3].y} S ${points[4].x - 40},${points[4].y + 30} ${points[4].x},${points[4].y}`
+  const path = `M ${xs[0]},${ys[0]} C ${xs[0] + 50},${ys[0] - 40} ${xs[1] - 30},${ys[1] + 10} ${xs[1]},${ys[1]} S ${xs[2] - 30},${ys[2]} ${xs[2]},${ys[2]} S ${xs[3] - 20},${ys[3] + 10} ${xs[3]},${ys[3]} S ${xs[4] - 50},${ys[4] + 40} ${xs[4]},${ys[4]}`
+  const areaPath = `${path} L ${xs[4]},${h} L ${xs[0]},${h} Z`
+
+  const color = phaseConfig[phase].color
+  const labels = ['Deload', 'Acum.', 'Peak', 'Fatiga']
 
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full" style={{ maxWidth: 320 }}>
-      {/* Gradient background */}
-      <defs>
-        <linearGradient id="curveGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={phaseConfig[phase].color} stopOpacity="0.15" />
-          <stop offset="100%" stopColor={phaseConfig[phase].color} stopOpacity="0" />
-        </linearGradient>
-      </defs>
+    <div className="relative">
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full block">
+        <defs>
+          <linearGradient id={`curveGrad-${label}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.2" />
+            <stop offset="100%" stopColor={color} stopOpacity="0.02" />
+          </linearGradient>
+          <filter id={`glow-${label}`}>
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
 
-      {/* Phase labels */}
-      <text x={pad} y={h - 4} fill="rgba(255,255,255,0.3)" fontSize="9" fontWeight="500">Deload</text>
-      <text x={w * 0.22} y={h - 4} fill="rgba(255,255,255,0.3)" fontSize="9" fontWeight="500">Acum.</text>
-      <text x={w * 0.46} y={h - 4} fill="rgba(255,255,255,0.3)" fontSize="9" fontWeight="500">Peak</text>
-      <text x={w * 0.7} y={h - 4} fill="rgba(255,255,255,0.3)" fontSize="9" fontWeight="500">Fatiga</text>
+        {/* Area fill */}
+        <path d={areaPath} fill={`url(#curveGrad-${label})`} />
 
-      {/* Curve line */}
-      <path d={path} fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="2" />
+        {/* Grid lines */}
+        {[0.25, 0.5, 0.75].map((pct, i) => (
+          <line key={i} x1={pad} y1={curveTop + (curveBottom - curveTop) * pct} x2={w - pad} y2={curveTop + (curveBottom - curveTop) * pct} stroke="rgba(255,255,255,0.06)" strokeDasharray="4 4" />
+        ))}
 
-      {/* Current position dot */}
-      <circle cx={dot.x} cy={dot.y} r="8" fill={phaseConfig[phase].color} stroke="white" strokeWidth="2.5" />
-      <text x={dot.x} y={dot.y - 14} fill="white" fontSize="11" fontWeight="700" textAnchor="middle">{score}</text>
-    </svg>
-  )
-}
+        {/* Curve line */}
+        <path d={path} fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
+        <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeOpacity="0.8" />
 
-// ── Readiness Ring ──────────────────────────────────────────────────
+        {/* Phase labels */}
+        {labels.map((lbl, i) => (
+          <text key={i} x={xs[i]} y={h - 8} fill={i === idx ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.25)'} fontSize="10" fontWeight={i === idx ? '700' : '500'} textAnchor="middle">{lbl}</text>
+        ))}
 
-function ReadinessRing({ score, size = 72, label }: { score: number; size?: number; label: string }) {
-  const r = (size - 8) / 2
-  const circ = 2 * Math.PI * r
-  const offset = circ - (score / 100) * circ
-  const color = readinessColor(score)
-
-  return (
-    <div className="flex flex-col items-center">
-      <svg width={size} height={size} className="block">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="5" />
-        <circle
-          cx={size / 2} cy={size / 2} r={r}
-          fill="none" stroke={color} strokeWidth="5"
-          strokeLinecap="round"
-          strokeDasharray={circ}
-          strokeDashoffset={offset}
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          style={{ transition: 'stroke-dashoffset 0.8s ease' }}
-        />
-        <text x={size / 2} y={size / 2 + 1} textAnchor="middle" dominantBaseline="central" fill="white" fontSize={size * 0.28} fontWeight="800">
-          {score}
-        </text>
+        {/* Dot with glow */}
+        <circle cx={dotX} cy={dotY} r="12" fill={color} fillOpacity="0.2" filter={`url(#glow-${label})`} />
+        <circle cx={dotX} cy={dotY} r="7" fill={color} stroke="white" strokeWidth="2.5" />
+        <text x={dotX} y={dotY - 16} fill="white" fontSize="13" fontWeight="800" textAnchor="middle">{score}</text>
       </svg>
-      <div className="text-[.72rem] text-white/60 mt-1">{label}</div>
     </div>
   )
 }
 
-// ── Training History Card ───────────────────────────────────────────
+// ── Readiness Arc ───────────────────────────────────────────────────
+
+function ReadinessArc({ score, size = 140, label, phase }: { score: number; size?: number; label: string; phase: Phase }) {
+  const r = (size - 16) / 2
+  const circ = Math.PI * r // half circle
+  const offset = circ - (score / 100) * circ
+  const color = readinessColor(score)
+  const cx = size / 2
+  const cy = size / 2 + 10
+
+  return (
+    <div className="flex flex-col items-center">
+      <svg width={size} height={size * 0.65} className="block overflow-visible">
+        {/* Track */}
+        <path
+          d={`M ${cx - r},${cy} A ${r},${r} 0 0,1 ${cx + r},${cy}`}
+          fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="10" strokeLinecap="round"
+        />
+        {/* Progress */}
+        <path
+          d={`M ${cx - r},${cy} A ${r},${r} 0 0,1 ${cx + r},${cy}`}
+          fill="none" stroke={color} strokeWidth="10" strokeLinecap="round"
+          strokeDasharray={circ}
+          strokeDashoffset={offset}
+          style={{ transition: 'stroke-dashoffset 1s ease' }}
+        />
+        {/* Score */}
+        <text x={cx} y={cy - 8} textAnchor="middle" fill="white" fontSize={size * 0.25} fontWeight="900">{score}</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" fill="rgba(255,255,255,0.5)" fontSize="11" fontWeight="500">{label}</text>
+      </svg>
+      <div className="flex items-center gap-1.5 mt-1">
+        <span className="text-[.85rem]">{phaseConfig[phase].emoji}</span>
+        <span className="text-[.82rem] font-semibold text-white/80">{phaseConfig[phase].label}</span>
+      </div>
+    </div>
+  )
+}
+
+// ── Recent Training Card ────────────────────────────────────────────
 
 interface RecentTraining {
   log_date: string
@@ -133,6 +154,11 @@ interface RecentTraining {
   training_muscle_groups: string[] | null
 }
 
+// ── Swipe tabs ──────────────────────────────────────────────────────
+
+const TABS = ['Global', 'Upper', 'Lower'] as const
+type Tab = typeof TABS[number]
+
 // ── Main Page ───────────────────────────────────────────────────────
 
 export default function RecoveryPage() {
@@ -140,6 +166,23 @@ export default function RecoveryPage() {
   const [recentTraining, setRecentTraining] = useState<RecentTraining[]>([])
   const [loading, setLoading] = useState(true)
   const [history, setHistory] = useState<{ date: string; global: number; upper: number; lower: number }[]>([])
+  const [activeTab, setActiveTab] = useState<Tab>('Global')
+  const [backfilled, setBackfilled] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Touch swipe handling
+  const touchStart = useRef<number | null>(null)
+  const handleTouchStart = (e: React.TouchEvent) => { touchStart.current = e.touches[0].clientX }
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStart.current == null) return
+    const diff = touchStart.current - e.changedTouches[0].clientX
+    if (Math.abs(diff) > 50) {
+      const idx = TABS.indexOf(activeTab)
+      if (diff > 0 && idx < TABS.length - 1) setActiveTab(TABS[idx + 1])
+      if (diff < 0 && idx > 0) setActiveTab(TABS[idx - 1])
+    }
+    touchStart.current = null
+  }
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -148,14 +191,20 @@ export default function RecoveryPage() {
       const userId = await getUserId()
       const today = todayLocal()
 
-      // Fetch last 7 days of logs
-      const sevenDaysAgo = new Date()
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+      // Backfill once
+      if (!backfilled) {
+        await backfillTrainingData(userId)
+        setBackfilled(true)
+      }
+
+      // Fetch last 14 days of logs
+      const fourteenDaysAgo = new Date()
+      fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
       const { data: logs } = await supabase
         .from('daily_logs')
         .select('*')
         .eq('user_id', userId)
-        .gte('log_date', dateToLocal(sevenDaysAgo))
+        .gte('log_date', dateToLocal(fourteenDaysAgo))
         .lte('log_date', today)
         .order('log_date', { ascending: false })
 
@@ -164,30 +213,31 @@ export default function RecoveryPage() {
       yesterdayDate.setDate(yesterdayDate.getDate() - 1)
       const yesterdayLog = logs?.find(l => l.log_date === dateToLocal(yesterdayDate))
 
-      // Compute 7-day averages
       const validLogs = logs ?? []
+      const last7 = validLogs.filter(l => {
+        const d = new Date(l.log_date + 'T12:00:00')
+        const daysAgo = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24)
+        return daysAgo <= 7
+      })
       const avg = (vals: (number | null | undefined)[]) => {
         const v = vals.filter((x): x is number => x != null)
         return v.length > 0 ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null
       }
 
-      const caloriesAvg7d = avg(validLogs.map(l => l.calories))
-      const stepsAvg7d = avg(validLogs.map(l => l.steps))
+      const caloriesAvg7d = avg(last7.map(l => l.calories))
+      const stepsAvg7d = avg(last7.map(l => l.steps))
 
-      // Consecutive training days
       let consecutiveDays = 0
       for (const log of validLogs) {
         if (log.training_name || log.training_variant) consecutiveDays++
         else break
       }
 
-      // Performance trends (simplified: compare last 2 sessions' volume)
-      const upperSessions = validLogs.filter(l => l.training_muscle_groups?.some((mg: string) =>
-        ['chest', 'shoulders', 'biceps', 'triceps', 'upper back', 'lats', 'traps'].includes(mg.toLowerCase())
-      ))
-      const lowerSessions = validLogs.filter(l => l.training_muscle_groups?.some((mg: string) =>
-        ['quadriceps', 'hamstrings', 'glutes', 'calves'].includes(mg.toLowerCase())
-      ))
+      const upperMuscles = ['chest', 'shoulders', 'biceps', 'triceps', 'upper back', 'lats', 'traps']
+      const lowerMuscles = ['quadriceps', 'hamstrings', 'glutes', 'calves']
+
+      const upperSessions = validLogs.filter(l => l.training_muscle_groups?.some((mg: string) => upperMuscles.includes(mg.toLowerCase())))
+      const lowerSessions = validLogs.filter(l => l.training_muscle_groups?.some((mg: string) => lowerMuscles.includes(mg.toLowerCase())))
 
       const getTrend = (sessions: typeof validLogs): 'up' | 'same' | 'down' => {
         if (sessions.length < 2) return 'same'
@@ -200,31 +250,31 @@ export default function RecoveryPage() {
         return 'same'
       }
 
-      const yesterdayMuscles = yesterdayLog?.training_muscle_groups ?? []
+      const yesterdayMuscles: string[] = yesterdayLog?.training_muscle_groups ?? []
+
+      // Use most recent log with subjective data if today has none
+      const subjectiveLog = todayLog?.energy != null ? todayLog
+        : validLogs.find(l => l.energy != null)
 
       const input: RecoveryInput = {
-        energy: todayLog?.energy ?? null,
-        hunger: todayLog?.hunger ?? null,
-        mood: todayLog?.mood ?? null,
-        sleepHours: todayLog?.sleep_hours ?? null,
-        fatigueGlobal: todayLog?.fatigue_level ?? null,
-        fatigueUpper: todayLog?.fatigue_upper ?? null,
-        fatigueLower: todayLog?.fatigue_lower ?? null,
-        caloriesToday: todayLog?.calories ?? null,
+        energy: subjectiveLog?.energy ?? null,
+        hunger: subjectiveLog?.hunger ?? null,
+        mood: subjectiveLog?.mood ?? null,
+        sleepHours: subjectiveLog?.sleep_hours ?? null,
+        fatigueGlobal: subjectiveLog?.fatigue_level ?? null,
+        fatigueUpper: subjectiveLog?.fatigue_upper ?? null,
+        fatigueLower: subjectiveLog?.fatigue_lower ?? null,
+        caloriesToday: todayLog?.calories ?? subjectiveLog?.calories ?? null,
         caloriesAvg7d,
-        stepsToday: todayLog?.steps ?? null,
+        stepsToday: todayLog?.steps ?? subjectiveLog?.steps ?? null,
         stepsAvg7d,
         performanceUpper: getTrend(upperSessions),
         performanceLower: getTrend(lowerSessions),
         trainedYesterday: !!(yesterdayLog?.training_name || yesterdayLog?.training_variant),
         consecutiveTrainingDays: consecutiveDays,
         daysUntilNextTraining: null,
-        trainedUpperYesterday: yesterdayMuscles.some((mg: string) =>
-          ['chest', 'shoulders', 'biceps', 'triceps', 'upper back', 'lats', 'traps'].includes(mg.toLowerCase())
-        ),
-        trainedLowerYesterday: yesterdayMuscles.some((mg: string) =>
-          ['quadriceps', 'hamstrings', 'glutes', 'calves'].includes(mg.toLowerCase())
-        ),
+        trainedUpperYesterday: yesterdayMuscles.some((mg: string) => upperMuscles.includes(mg.toLowerCase())),
+        trainedLowerYesterday: yesterdayMuscles.some((mg: string) => lowerMuscles.includes(mg.toLowerCase())),
       }
 
       const result = computeRecovery(input)
@@ -247,9 +297,7 @@ export default function RecoveryPage() {
         input_data: input as unknown as Record<string, unknown>,
       }, { onConflict: 'user_id,snapshot_date' })
 
-      // Fetch history (last 14 days of snapshots)
-      const fourteenDaysAgo = new Date()
-      fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
+      // History
       const { data: snapshots } = await supabase
         .from('recovery_snapshots')
         .select('snapshot_date, readiness_global, readiness_upper, readiness_lower')
@@ -266,8 +314,8 @@ export default function RecoveryPage() {
         })))
       }
 
-      // Recent training for list
-      const trainedLogs = validLogs.filter(l => l.training_name || l.training_stimulus)
+      // Recent training
+      const trainedLogs = last7.filter(l => l.training_name || l.training_stimulus)
       setRecentTraining(trainedLogs.map(l => ({
         log_date: l.log_date,
         training_name: l.training_name,
@@ -281,11 +329,9 @@ export default function RecoveryPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [backfilled])
 
   useEffect(() => { fetchData() }, [fetchData])
-
-  // Listen for daily log saves to refresh
   useEffect(() => {
     const handler = () => fetchData()
     window.addEventListener('daily-log-saved', handler)
@@ -294,15 +340,14 @@ export default function RecoveryPage() {
 
   if (loading) {
     return (
-      <main className="flex-1 py-9 px-11 max-md:py-5 max-md:px-4 max-md:pb-[90px]">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-800">Recovery</h1>
-          <p className="text-gray-500 text-[.88rem]">Ciclo fisiologico y readiness</p>
-        </div>
-        <div className="space-y-4">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="bg-gray-200 animate-pulse rounded-[var(--radius)] h-40" />
-          ))}
+      <main className="flex-1 max-md:pb-[90px] bg-[#0a1628] min-h-screen">
+        <div className="p-6 pt-8 space-y-4">
+          <div className="h-8 w-32 bg-white/5 rounded-lg animate-pulse" />
+          <div className="h-[200px] bg-white/5 rounded-2xl animate-pulse" />
+          <div className="grid grid-cols-2 gap-3">
+            <div className="h-[120px] bg-white/5 rounded-2xl animate-pulse" />
+            <div className="h-[120px] bg-white/5 rounded-2xl animate-pulse" />
+          </div>
         </div>
       </main>
     )
@@ -310,142 +355,179 @@ export default function RecoveryPage() {
 
   if (!recovery) {
     return (
-      <main className="flex-1 py-9 px-11 max-md:py-5 max-md:px-4 max-md:pb-[90px]">
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold tracking-tight text-gray-800">Recovery</h1>
-          <p className="text-gray-500 text-[.88rem]">Ciclo fisiologico y readiness</p>
-        </div>
-        <div className="bg-gradient-to-br from-[#1d9be2] to-[#1aafcf] text-white rounded-[var(--radius)] p-6 text-center">
-          <div className="text-[1.5rem] mb-2">{'\uD83D\uDCCA'}</div>
-          <div className="font-bold mb-1">Sin datos suficientes</div>
-          <div className="text-[.84rem] opacity-80">Completa tu registro diario para ver tu ciclo de recovery</div>
+      <main className="flex-1 max-md:pb-[90px] bg-[#0a1628] min-h-screen flex items-center justify-center">
+        <div className="text-center px-8">
+          <div className="text-[3rem] mb-4">{'\uD83D\uDCCA'}</div>
+          <div className="text-white font-bold text-lg mb-2">Sin datos suficientes</div>
+          <div className="text-white/50 text-[.88rem]">Completa tu registro diario para ver tu ciclo de recovery</div>
         </div>
       </main>
     )
   }
 
-  const phaseGlobal = phaseConfig[recovery.phaseGlobal]
-  const phaseUpper = phaseConfig[recovery.phaseUpper]
-  const phaseLower = phaseConfig[recovery.phaseLower]
+  const tabData: Record<Tab, { score: number; phase: Phase; label: string; fatigueLabel: string }> = {
+    Global: { score: recovery.readinessGlobal, phase: recovery.phaseGlobal, label: 'Readiness Global', fatigueLabel: 'Global' },
+    Upper:  { score: recovery.readinessUpper,  phase: recovery.phaseUpper,  label: 'Tren Superior',    fatigueLabel: '\uD83D\uDCAA Upper' },
+    Lower:  { score: recovery.readinessLower,  phase: recovery.phaseLower,  label: 'Tren Inferior',    fatigueLabel: '\uD83E\uDDB5 Lower' },
+  }
+  const current = tabData[activeTab]
   const energySt = energyConfig[recovery.energyState]
 
+  // History line for current tab
+  const historyKey = activeTab === 'Global' ? 'global' : activeTab === 'Upper' ? 'upper' : 'lower'
+
   return (
-    <main className="flex-1 py-9 px-11 max-md:py-5 max-md:px-4 max-md:pb-[90px] overflow-x-hidden">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold tracking-tight text-gray-800">Recovery</h1>
-        <p className="text-gray-500 text-[.88rem]">Ciclo fisiologico y readiness</p>
-      </div>
-
-      {/* 1. Global Readiness + Cycle Curve */}
-      <div className="bg-gradient-to-br from-[#0f4d6e] to-[#175563] text-white rounded-[var(--radius)] p-6 mb-4 fade-in">
-        <div className="text-center mb-4">
-          <ReadinessRing score={recovery.readinessGlobal} size={90} label="Readiness Global" />
-          <div className="font-bold text-[1rem] mt-2">{phaseGlobal.icon} {phaseGlobal.label}</div>
+    <main className="flex-1 max-md:pb-[90px] bg-[#0a1628] min-h-screen overflow-x-hidden" ref={scrollRef}>
+      {/* Header */}
+      <div className="px-6 pt-7 pb-2 flex items-center justify-between">
+        <div>
+          <h1 className="text-[1.4rem] font-extrabold text-white tracking-tight">Recovery</h1>
+          <p className="text-white/40 text-[.78rem]">Ciclo fisiologico</p>
         </div>
-        <CycleCurve phase={recovery.phaseGlobal} score={recovery.readinessGlobal} />
-      </div>
-
-      {/* 2. Upper / Lower Cards */}
-      <div className="grid grid-cols-2 gap-3 mb-4 fade-in" style={{ animationDelay: '.1s' }}>
-        <div className="rounded-[var(--radius)] p-5 text-white text-center" style={{ background: `linear-gradient(135deg, ${phaseUpper.color}dd, ${phaseUpper.color}88)` }}>
-          <div className="text-[.72rem] opacity-70 mb-1">{'\uD83D\uDCAA'} Tren Superior</div>
-          <div className="text-[2rem] font-extrabold leading-tight">{recovery.readinessUpper}</div>
-          <div className="text-[.8rem] font-semibold mt-1">{phaseUpper.icon} {phaseUpper.label}</div>
-        </div>
-        <div className="rounded-[var(--radius)] p-5 text-white text-center" style={{ background: `linear-gradient(135deg, ${phaseLower.color}dd, ${phaseLower.color}88)` }}>
-          <div className="text-[.72rem] opacity-70 mb-1">{'\uD83E\uDDB5'} Tren Inferior</div>
-          <div className="text-[2rem] font-extrabold leading-tight">{recovery.readinessLower}</div>
-          <div className="text-[.8rem] font-semibold mt-1">{phaseLower.icon} {phaseLower.label}</div>
+        <div className="flex items-center gap-1.5 bg-white/[.06] rounded-full p-1">
+          {TABS.map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-3.5 py-1.5 rounded-full text-[.75rem] font-semibold border-none cursor-pointer transition-all duration-300 ${
+                activeTab === tab
+                  ? 'bg-white/15 text-white'
+                  : 'bg-transparent text-white/35 hover:text-white/60'
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* 3. Energy State */}
-      <div className="bg-card rounded-[var(--radius)] border border-gray-200 p-5 mb-4 fade-in" style={{ animationDelay: '.15s' }}>
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-[.82rem] font-semibold text-gray-700">{'\u26A1'} Estado Energetico</div>
-          <span className="text-[.78rem] font-bold" style={{ color: energySt.color }}>{energySt.label}</span>
+      {/* Swipeable main area */}
+      <div onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd} className="px-5">
+        {/* Arc + Phase */}
+        <div className="text-center pt-4 pb-2">
+          <ReadinessArc score={current.score} size={160} label={current.label} phase={current.phase} />
         </div>
-        <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-700"
-            style={{ width: `${energySt.pct}%`, backgroundColor: energySt.color }}
-          />
+
+        {/* Cycle Curve */}
+        <div className="bg-white/[.04] rounded-2xl p-4 pt-2 mb-4">
+          <CycleCurve phase={current.phase} score={current.score} label={activeTab} />
         </div>
-        <div className="text-[.72rem] text-gray-400 mt-1.5">Score: {recovery.energyScore}/100</div>
-      </div>
 
-      {/* 4. System Reading */}
-      <div className="bg-card rounded-[var(--radius)] border border-gray-200 p-5 mb-4 fade-in" style={{ animationDelay: '.2s' }}>
-        <div className="text-[.82rem] font-semibold text-gray-700 mb-2">{'\uD83D\uDCCB'} Lectura del Sistema</div>
-        <p className="text-[.84rem] text-gray-600 leading-relaxed">{recovery.systemReading}</p>
-      </div>
+        {/* Quick stats row */}
+        <div className="grid grid-cols-3 gap-2.5 mb-4">
+          {TABS.map(tab => {
+            const d = tabData[tab]
+            const isActive = tab === activeTab
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`rounded-xl p-3 text-center border-none cursor-pointer transition-all duration-300 ${
+                  isActive ? 'bg-white/10 ring-1 ring-white/20' : 'bg-white/[.04]'
+                }`}
+              >
+                <div className="text-[.65rem] text-white/40 mb-0.5">{tab === 'Global' ? '\uD83C\uDF10' : tab === 'Upper' ? '\uD83D\uDCAA' : '\uD83E\uDDB5'} {tab}</div>
+                <div className="text-[1.3rem] font-extrabold" style={{ color: readinessColor(d.score) }}>{d.score}</div>
+                <div className="text-[.6rem] font-medium" style={{ color: phaseConfig[d.phase].color }}>{phaseConfig[d.phase].label}</div>
+              </button>
+            )
+          })}
+        </div>
 
-      {/* 5. Recommendation */}
-      <div className="bg-gradient-to-br from-primary/5 to-accent/5 rounded-[var(--radius)] border border-primary/20 p-5 mb-4 fade-in" style={{ animationDelay: '.25s' }}>
-        <div className="text-[.82rem] font-semibold text-primary-dark mb-2">{'\uD83D\uDCA1'} Recomendacion del Dia</div>
-        <p className="text-[.84rem] text-gray-700 leading-relaxed">{recovery.recommendation}</p>
-      </div>
-
-      {/* 6. Readiness History (mini chart) */}
-      {history.length > 1 && (
-        <div className="bg-card rounded-[var(--radius)] border border-gray-200 p-5 mb-4 fade-in" style={{ animationDelay: '.3s' }}>
-          <div className="text-[.82rem] font-semibold text-gray-700 mb-3">{'\uD83D\uDCC8'} Readiness ultimos dias</div>
-          <div className="flex items-end gap-1.5" style={{ height: 80 }}>
-            {history.map((h, i) => {
-              const d = new Date(h.date + 'T12:00:00')
-              const dayLabel = d.toLocaleDateString('es-AR', { weekday: 'narrow' })
-              return (
-                <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
-                  <div
-                    className="w-full rounded-t-[3px] transition-all duration-500"
-                    style={{
-                      height: `${Math.max(h.global * 0.7, 4)}px`,
-                      backgroundColor: readinessColor(h.global),
-                      opacity: i === history.length - 1 ? 1 : 0.6,
-                    }}
-                  />
-                  <span className="text-[.6rem] text-gray-400">{dayLabel}</span>
-                </div>
-              )
-            })}
+        {/* Energy bar */}
+        <div className="bg-white/[.04] rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[.8rem] font-semibold text-white/70">{'\u26A1'} Estado Energetico</span>
+            <span className="text-[.78rem] font-bold" style={{ color: energySt.color }}>{energySt.label} ({recovery.energyScore})</span>
+          </div>
+          <div className="h-2 rounded-full bg-white/[.06] overflow-hidden">
+            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${energySt.pct}%`, backgroundColor: energySt.color }} />
           </div>
         </div>
-      )}
 
-      {/* 7. Recent Training */}
-      {recentTraining.length > 0 && (
-        <div className="bg-card rounded-[var(--radius)] border border-gray-200 p-5 fade-in" style={{ animationDelay: '.35s' }}>
-          <div className="text-[.82rem] font-semibold text-gray-700 mb-3">{'\uD83C\uDFCB\uFE0F'} Entrenamientos Recientes</div>
-          <div className="space-y-2.5">
-            {recentTraining.map((t, i) => {
-              const d = new Date(t.log_date + 'T12:00:00')
-              const dayLabel = d.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short' })
-              const stim = t.training_stimulus as keyof typeof stimulusLabel | null
-              return (
-                <div key={i} className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-b-0">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-[.84rem] text-gray-800 truncate">{t.training_name || 'Entrenamiento'}</div>
-                    <div className="text-[.72rem] text-gray-400">{dayLabel}</div>
+        {/* System Reading */}
+        <div className="bg-white/[.04] rounded-xl p-4 mb-4">
+          <div className="text-[.78rem] font-semibold text-white/60 mb-2">{'\uD83D\uDCCB'} Lectura del Sistema</div>
+          <p className="text-[.84rem] text-white/80 leading-relaxed">{recovery.systemReading}</p>
+        </div>
+
+        {/* Recommendation */}
+        <div className="rounded-xl p-4 mb-4" style={{ background: `linear-gradient(135deg, ${readinessColor(current.score)}15, ${readinessColor(current.score)}08)`, border: `1px solid ${readinessColor(current.score)}30` }}>
+          <div className="text-[.78rem] font-semibold mb-2" style={{ color: readinessColor(current.score) }}>{'\uD83D\uDCA1'} Recomendacion</div>
+          <p className="text-[.84rem] text-white/80 leading-relaxed">{recovery.recommendation}</p>
+        </div>
+
+        {/* History mini chart */}
+        {history.length > 1 && (
+          <div className="bg-white/[.04] rounded-xl p-4 mb-4">
+            <div className="text-[.78rem] font-semibold text-white/60 mb-3">{'\uD83D\uDCC8'} Historial ({activeTab})</div>
+            <div className="flex items-end gap-1" style={{ height: 60 }}>
+              {history.map((h, i) => {
+                const val = h[historyKey]
+                const d = new Date(h.date + 'T12:00:00')
+                const dayLabel = d.toLocaleDateString('es-AR', { weekday: 'narrow' })
+                const isLast = i === history.length - 1
+                return (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-0.5">
+                    {isLast && <span className="text-[.6rem] font-bold text-white/60 mb-0.5">{val}</span>}
+                    <div
+                      className="w-full rounded-t-[3px] transition-all duration-500 min-h-[3px]"
+                      style={{
+                        height: `${Math.max(val * 0.5, 3)}px`,
+                        backgroundColor: isLast ? readinessColor(val) : 'rgba(255,255,255,0.12)',
+                      }}
+                    />
+                    <span className="text-[.55rem] text-white/25">{dayLabel}</span>
                   </div>
-                  {t.training_volume_kg && (
-                    <div className="text-[.75rem] text-gray-500 font-medium">
-                      {Math.round(t.training_volume_kg / 1000 * 10) / 10}t
-                    </div>
-                  )}
-                  {stim && (
-                    <span
-                      className="text-[.65rem] font-bold px-2 py-0.5 rounded-full text-white whitespace-nowrap"
-                      style={{ backgroundColor: stimulusColor[stim] || '#6B7280' }}
-                    >
-                      {stimulusLabel[stim] || stim}
-                    </span>
-                  )}
-                </div>
-              )
-            })}
+                )
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Recent Training */}
+        {recentTraining.length > 0 && (
+          <div className="bg-white/[.04] rounded-xl p-4 mb-6">
+            <div className="text-[.78rem] font-semibold text-white/60 mb-3">{'\uD83C\uDFCB\uFE0F'} Entrenamientos Recientes</div>
+            <div className="space-y-2">
+              {recentTraining.map((t, i) => {
+                const d = new Date(t.log_date + 'T12:00:00')
+                const dayLabel = d.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric' })
+                const stim = t.training_stimulus as keyof typeof stimulusLabel | null
+                return (
+                  <div key={i} className="flex items-center gap-3 py-2 border-b border-white/[.04] last:border-b-0">
+                    <div className="w-10 text-center">
+                      <div className="text-[.65rem] text-white/30 uppercase">{dayLabel}</div>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-[.82rem] text-white/80 truncate">{t.training_name || 'Entrenamiento'}</div>
+                      {t.training_muscle_groups && t.training_muscle_groups.length > 0 && (
+                        <div className="text-[.65rem] text-white/30 truncate">{t.training_muscle_groups.join(', ')}</div>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      {t.training_volume_kg != null && (
+                        <div className="text-[.72rem] text-white/50 font-medium">{Math.round(t.training_volume_kg / 100) / 10}t</div>
+                      )}
+                      {t.training_rpe_avg != null && (
+                        <div className="text-[.6rem] text-white/30">RPE {t.training_rpe_avg}</div>
+                      )}
+                    </div>
+                    {stim && (
+                      <span
+                        className="text-[.6rem] font-bold px-2 py-0.5 rounded-full text-white/90 whitespace-nowrap"
+                        style={{ backgroundColor: stimulusColor[stim] || '#6B7280' }}
+                      >
+                        {stimulusLabel[stim] || stim}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     </main>
   )
 }

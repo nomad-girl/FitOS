@@ -36,14 +36,22 @@ export default function CheckinPage() {
   const [decisionNotes, setDecisionNotes] = useState('')
   const [checkinNotes, setCheckinNotes] = useState('')
 
-  // Week navigation
-  const [weekOffset, setWeekOffset] = useState(0)
+  // Week navigation — on the week-start day, default to previous week (the one that just ended)
+  const [weekOffset, setWeekOffset] = useState(() => {
+    const dayMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
+    const today = new Date().getDay()
+    const startDay = dayMap[profile?.week_start_day ?? 'saturday'] ?? 6
+    return today === startDay ? -1 : 0
+  })
 
   // Body measurements
   const [weight, setWeight] = useState('')
   const [waist, setWaist] = useState('')
   const [hip, setHip] = useState('')
   const [thigh, setThigh] = useState('')
+  const [lowHip, setLowHip] = useState('')
+  const [restingHr, setRestingHr] = useState('')
+  const [hrv, setHrv] = useState('')
 
   // Data
   const [activePhase, setActivePhase] = useState<Phase | null>(null)
@@ -101,6 +109,9 @@ export default function CheckinPage() {
           if (cached.existingCheckin.waist_cm) setWaist(String(cached.existingCheckin.waist_cm))
           if (cached.existingCheckin.hip_cm) setHip(String(cached.existingCheckin.hip_cm))
           if (cached.existingCheckin.thigh_cm) setThigh(String(cached.existingCheckin.thigh_cm))
+          if (cached.existingCheckin.low_hip_cm) setLowHip(String(cached.existingCheckin.low_hip_cm))
+          if (cached.existingCheckin.resting_hr) setRestingHr(String(cached.existingCheckin.resting_hr))
+          if (cached.existingCheckin.hrv) setHrv(String(cached.existingCheckin.hrv))
           if (cached.existingCheckin.performance_trend) setPerformanceTrend(cached.existingCheckin.performance_trend as PerformanceTrend)
           if (cached.existingCheckin.notes) setCheckinNotes(cached.existingCheckin.notes)
         }
@@ -118,6 +129,9 @@ export default function CheckinPage() {
       setWaist('')
       setHip('')
       setThigh('')
+      setLowHip('')
+      setRestingHr('')
+      setHrv('')
       setPerformanceTrend('stable')
       setCheckinNotes('')
       setExistingCheckin(null)
@@ -156,6 +170,9 @@ export default function CheckinPage() {
           if (checkinData.waist_cm) setWaist(String(checkinData.waist_cm))
           if (checkinData.hip_cm) setHip(String(checkinData.hip_cm))
           if (checkinData.thigh_cm) setThigh(String(checkinData.thigh_cm))
+          if (checkinData.low_hip_cm) setLowHip(String(checkinData.low_hip_cm))
+          if (checkinData.resting_hr) setRestingHr(String(checkinData.resting_hr))
+          if (checkinData.hrv) setHrv(String(checkinData.hrv))
           if (checkinData.performance_trend) setPerformanceTrend(checkinData.performance_trend as PerformanceTrend)
           if (checkinData.notes) setCheckinNotes(checkinData.notes)
         }
@@ -274,6 +291,9 @@ export default function CheckinPage() {
         waist_cm: waist ? parseFloat(waist) : null,
         hip_cm: hip ? parseFloat(hip) : null,
         thigh_cm: thigh ? parseFloat(thigh) : null,
+        low_hip_cm: lowHip ? parseFloat(lowHip) : null,
+        resting_hr: restingHr ? parseInt(restingHr) : null,
+        hrv: hrv ? parseInt(hrv) : null,
         performance_trend: performanceTrend,
         avg_calories: averages.avg_calories ?? null,
         avg_protein: averages.avg_protein ?? null,
@@ -527,6 +547,39 @@ export default function CheckinPage() {
                   value={thigh}
                   onChange={(e) => setThigh(e.target.value)}
                   placeholder="54.5"
+                  className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] font-medium focus:border-primary focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[.77rem] text-gray-400 block mb-1">Cadera baja (cm)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={lowHip}
+                  onChange={(e) => setLowHip(e.target.value)}
+                  placeholder="95.0"
+                  className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] font-medium focus:border-primary focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[.77rem] text-gray-400 block mb-1">FC reposo (bpm)</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={restingHr}
+                  onChange={(e) => setRestingHr(e.target.value)}
+                  placeholder="58"
+                  className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] font-medium focus:border-primary focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[.77rem] text-gray-400 block mb-1">HRV (ms)</label>
+                <input
+                  type="number"
+                  step="1"
+                  value={hrv}
+                  onChange={(e) => setHrv(e.target.value)}
+                  placeholder="45"
                   className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] font-medium focus:border-primary focus:outline-none"
                 />
               </div>

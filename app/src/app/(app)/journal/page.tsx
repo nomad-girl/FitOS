@@ -7,6 +7,7 @@ import { RightPanel } from '@/components/layout/right-panel'
 import { createClient } from '@/lib/supabase/client'
 import { getCached, setCache, invalidateCache } from '@/lib/cache'
 import { dateToLocal } from '@/lib/date-utils'
+import { stimulusLabel, stimulusColor } from '@/lib/recovery'
 import type { Phase, WeeklyCheckin, WeeklyDecision, DailyLog } from '@/lib/supabase/types'
 
 type BadgeVariant = 'blue' | 'green' | 'yellow' | 'gray' | 'red'
@@ -45,6 +46,9 @@ interface LogFormData {
   energy: string
   hunger: string
   fatigue_level: string
+  mood: string
+  fatigue_upper: string
+  fatigue_lower: string
   training_volume_kg: string
   training_variant: string
   pr_count: string
@@ -167,7 +171,7 @@ function getDaysSince(startDate: string | null): string[] {
 }
 
 function emptyFormData(): LogFormData {
-  return { calories: '', protein_g: '', steps: '', sleep_hours: '', energy: '', hunger: '', fatigue_level: '', training_volume_kg: '', training_variant: '', pr_count: '' }
+  return { calories: '', protein_g: '', steps: '', sleep_hours: '', energy: '', hunger: '', fatigue_level: '', mood: '', fatigue_upper: '', fatigue_lower: '', training_volume_kg: '', training_variant: '', pr_count: '' }
 }
 
 function logToFormData(log: DailyLog): LogFormData {
@@ -179,6 +183,9 @@ function logToFormData(log: DailyLog): LogFormData {
     energy: log.energy != null ? String(log.energy) : '',
     hunger: log.hunger != null ? String(log.hunger) : '',
     fatigue_level: log.fatigue_level != null ? String(log.fatigue_level) : '',
+    mood: log.mood != null ? String(log.mood) : '',
+    fatigue_upper: log.fatigue_upper != null ? String(log.fatigue_upper) : '',
+    fatigue_lower: log.fatigue_lower != null ? String(log.fatigue_lower) : '',
     training_volume_kg: log.training_volume_kg != null ? String(log.training_volume_kg) : '',
     training_variant: log.training_variant ?? '',
     pr_count: log.pr_count != null ? String(log.pr_count) : '',
@@ -538,6 +545,9 @@ export default function JournalPage() {
             energy: parseNum(formData.energy),
             hunger: parseNum(formData.hunger),
             fatigue_level: parseNum(formData.fatigue_level),
+            mood: parseNum(formData.mood),
+            fatigue_upper: parseNum(formData.fatigue_upper),
+            fatigue_lower: parseNum(formData.fatigue_lower),
             training_volume_kg: parseNum(formData.training_volume_kg),
             training_variant: formData.training_variant.trim() || null,
             pr_count: parseNum(formData.pr_count),
@@ -1032,11 +1042,30 @@ export default function JournalPage() {
                             {entry.log!.fatigue_level != null && (
                               <span>Fatiga {ratingDots(entry.log!.fatigue_level)}</span>
                             )}
-                            {entry.log!.training_variant && (
+                            {entry.log!.mood != null && (
+                              <span>Animo {ratingDots(entry.log!.mood)}</span>
+                            )}
+                            {entry.log!.fatigue_upper != null && (
+                              <span>Upper {ratingDots(entry.log!.fatigue_upper)}</span>
+                            )}
+                            {entry.log!.fatigue_lower != null && (
+                              <span>Lower {ratingDots(entry.log!.fatigue_lower)}</span>
+                            )}
+                            {entry.log!.training_name ? (
+                              <span className="font-semibold text-primary">
+                                {entry.log!.training_name}
+                                {entry.log!.training_volume_kg ? ` · ${(entry.log!.training_volume_kg / 1000).toFixed(1)}t` : ''}
+                                {entry.log!.training_stimulus && (
+                                  <span className="ml-1 text-[.72rem] px-1.5 py-0.5 rounded-full" style={{ backgroundColor: `${stimulusColor[entry.log!.training_stimulus as keyof typeof stimulusColor] ?? '#888'}20`, color: stimulusColor[entry.log!.training_stimulus as keyof typeof stimulusColor] ?? '#888' }}>
+                                    {stimulusLabel[entry.log!.training_stimulus as keyof typeof stimulusLabel] ?? entry.log!.training_stimulus}
+                                  </span>
+                                )}
+                              </span>
+                            ) : entry.log!.training_variant ? (
                               <span className="font-semibold text-primary">
                                 Dia {entry.log!.training_variant}{entry.log!.training_volume_kg ? `: ${(entry.log!.training_volume_kg / 1000).toFixed(1)}t` : ''}{entry.log!.pr_count ? ` ${entry.log!.pr_count}PRs` : ''}
                               </span>
-                            )}
+                            ) : null}
                           </div>
                         )}
                       </button>
@@ -1142,7 +1171,7 @@ export default function JournalPage() {
 
                             {/* Fatigue */}
                             <div className="col-span-2 max-md:col-span-1">
-                              <label className="block text-[.77rem] font-semibold text-gray-500 mb-1">Nivel de Fatiga (1-5)</label>
+                              <label className="block text-[.77rem] font-semibold text-gray-500 mb-1">Nivel de Fatiga General (1-5)</label>
                               <div className="flex gap-1.5 max-w-[50%] max-md:max-w-full">
                                 {[1, 2, 3, 4, 5].map((v) => (
                                   <button
@@ -1160,52 +1189,158 @@ export default function JournalPage() {
                                 ))}
                               </div>
                             </div>
+
+                            {/* Mood */}
+                            <div>
+                              <label className="block text-[.77rem] font-semibold text-gray-500 mb-1">Animo (1-5)</label>
+                              <div className="flex gap-1.5">
+                                {[1, 2, 3, 4, 5].map((v) => (
+                                  <button
+                                    key={v}
+                                    type="button"
+                                    onClick={() => handleFormChange('mood', formData.mood === String(v) ? '' : String(v))}
+                                    className={`flex-1 py-2 rounded-[var(--radius)] text-[.84rem] font-semibold border transition-all ${
+                                      formData.mood === String(v)
+                                        ? 'bg-primary text-white border-primary'
+                                        : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300'
+                                    }`}
+                                  >
+                                    {v}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="text-[.68rem] text-gray-400 mt-0.5">1=muy baja · 5=excelente</div>
+                            </div>
+
+                            {/* Fatigue Upper */}
+                            <div>
+                              <label className="block text-[.77rem] font-semibold text-gray-500 mb-1">Fatiga Tren Superior (1-5)</label>
+                              <div className="flex gap-1.5">
+                                {[1, 2, 3, 4, 5].map((v) => (
+                                  <button
+                                    key={v}
+                                    type="button"
+                                    onClick={() => handleFormChange('fatigue_upper', formData.fatigue_upper === String(v) ? '' : String(v))}
+                                    className={`flex-1 py-2 rounded-[var(--radius)] text-[.84rem] font-semibold border transition-all ${
+                                      formData.fatigue_upper === String(v)
+                                        ? 'bg-orange-500 text-white border-orange-500'
+                                        : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300'
+                                    }`}
+                                  >
+                                    {v}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="text-[.68rem] text-gray-400 mt-0.5">1=fresco · 5=muy cargado</div>
+                            </div>
+
+                            {/* Fatigue Lower */}
+                            <div>
+                              <label className="block text-[.77rem] font-semibold text-gray-500 mb-1">Fatiga Tren Inferior (1-5)</label>
+                              <div className="flex gap-1.5">
+                                {[1, 2, 3, 4, 5].map((v) => (
+                                  <button
+                                    key={v}
+                                    type="button"
+                                    onClick={() => handleFormChange('fatigue_lower', formData.fatigue_lower === String(v) ? '' : String(v))}
+                                    className={`flex-1 py-2 rounded-[var(--radius)] text-[.84rem] font-semibold border transition-all ${
+                                      formData.fatigue_lower === String(v)
+                                        ? 'bg-orange-500 text-white border-orange-500'
+                                        : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300'
+                                    }`}
+                                  >
+                                    {v}
+                                  </button>
+                                ))}
+                              </div>
+                              <div className="text-[.68rem] text-gray-400 mt-0.5">1=fresco · 5=muy cargado</div>
+                            </div>
                           </div>
 
-                          {/* Training */}
+                          {/* Training — auto Hevy data or manual */}
                           <div className="mt-4 pt-4 border-t border-gray-100">
-                            <div className="text-[.77rem] text-gray-400 uppercase font-semibold mb-2">Entrenamiento (opcional)</div>
-                            <div className="grid grid-cols-3 gap-3">
-                              <div>
-                                <label className="text-[.72rem] text-gray-500 block mb-1">Variante</label>
-                                <div className="flex gap-1.5">
-                                  {['A', 'B', 'C'].map((v) => (
-                                    <button
-                                      key={v}
-                                      type="button"
-                                      onClick={() => handleFormChange('training_variant', formData.training_variant === v ? '' : v)}
-                                      className={`flex-1 py-2 rounded-[var(--radius)] text-[.84rem] font-semibold border transition-all ${
-                                        formData.training_variant === v
-                                          ? 'bg-primary text-white border-primary'
-                                          : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300'
-                                      }`}
-                                    >
-                                      {v}
-                                    </button>
-                                  ))}
+                            <div className="text-[.77rem] text-gray-400 uppercase font-semibold mb-2">Entrenamiento</div>
+
+                            {/* Auto-detected Hevy training */}
+                            {entry.log?.training_name && (
+                              <div className="bg-blue-50 border border-blue-100 rounded-[var(--radius)] p-3.5 mb-3">
+                                <div className="flex items-center gap-2 mb-1.5">
+                                  <span className="text-[.72rem] text-blue-500 uppercase font-semibold">Hevy</span>
+                                  <span className="font-semibold text-[.88rem] text-gray-800">{entry.log.training_name}</span>
+                                  {entry.log.training_stimulus && (
+                                    <span className="text-[.72rem] px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${stimulusColor[entry.log.training_stimulus as keyof typeof stimulusColor] ?? '#888'}20`, color: stimulusColor[entry.log.training_stimulus as keyof typeof stimulusColor] ?? '#888' }}>
+                                      {stimulusLabel[entry.log.training_stimulus as keyof typeof stimulusLabel] ?? entry.log.training_stimulus}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 text-[.8rem] text-gray-600">
+                                  {entry.log.training_volume_kg != null && (
+                                    <span>Volumen: <strong>{(entry.log.training_volume_kg / 1000).toFixed(1)}t</strong></span>
+                                  )}
+                                  {entry.log.training_sets != null && (
+                                    <span>Sets: <strong>{entry.log.training_sets}</strong></span>
+                                  )}
+                                  {entry.log.training_rpe_avg != null && (
+                                    <span>RPE avg: <strong>{entry.log.training_rpe_avg}</strong></span>
+                                  )}
+                                  {entry.log.training_rpe_max != null && (
+                                    <span>RPE max: <strong>{entry.log.training_rpe_max}</strong></span>
+                                  )}
+                                </div>
+                                {entry.log.training_muscle_groups && (entry.log.training_muscle_groups as string[]).length > 0 && (
+                                  <div className="flex flex-wrap gap-1 mt-2">
+                                    {(entry.log.training_muscle_groups as string[]).map((mg: string, i: number) => (
+                                      <span key={i} className="text-[.68rem] px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded-full">{mg}</span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Manual training fields (fallback) */}
+                            {!entry.log?.training_name && (
+                              <div className="grid grid-cols-3 gap-3">
+                                <div>
+                                  <label className="text-[.72rem] text-gray-500 block mb-1">Variante</label>
+                                  <div className="flex gap-1.5">
+                                    {['A', 'B', 'C'].map((v) => (
+                                      <button
+                                        key={v}
+                                        type="button"
+                                        onClick={() => handleFormChange('training_variant', formData.training_variant === v ? '' : v)}
+                                        className={`flex-1 py-2 rounded-[var(--radius)] text-[.84rem] font-semibold border transition-all ${
+                                          formData.training_variant === v
+                                            ? 'bg-primary text-white border-primary'
+                                            : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-300'
+                                        }`}
+                                      >
+                                        {v}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="text-[.72rem] text-gray-500 block mb-1">Volumen (kg)</label>
+                                  <input
+                                    type="number"
+                                    value={formData.training_volume_kg}
+                                    onChange={(e) => handleFormChange('training_volume_kg', e.target.value)}
+                                    placeholder="9500"
+                                    className="w-full py-2 px-3 border border-gray-200 rounded-[var(--radius)] text-[.88rem] focus:border-primary focus:outline-none"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[.72rem] text-gray-500 block mb-1">PRs</label>
+                                  <input
+                                    type="number"
+                                    value={formData.pr_count}
+                                    onChange={(e) => handleFormChange('pr_count', e.target.value)}
+                                    placeholder="0"
+                                    className="w-full py-2 px-3 border border-gray-200 rounded-[var(--radius)] text-[.88rem] focus:border-primary focus:outline-none"
+                                  />
                                 </div>
                               </div>
-                              <div>
-                                <label className="text-[.72rem] text-gray-500 block mb-1">Volumen (kg)</label>
-                                <input
-                                  type="number"
-                                  value={formData.training_volume_kg}
-                                  onChange={(e) => handleFormChange('training_volume_kg', e.target.value)}
-                                  placeholder="9500"
-                                  className="w-full py-2 px-3 border border-gray-200 rounded-[var(--radius)] text-[.88rem] focus:border-primary focus:outline-none"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-[.72rem] text-gray-500 block mb-1">PRs</label>
-                                <input
-                                  type="number"
-                                  value={formData.pr_count}
-                                  onChange={(e) => handleFormChange('pr_count', e.target.value)}
-                                  placeholder="0"
-                                  className="w-full py-2 px-3 border border-gray-200 rounded-[var(--radius)] text-[.88rem] focus:border-primary focus:outline-none"
-                                />
-                              </div>
-                            </div>
+                            )}
                           </div>
 
                           {/* Actions */}

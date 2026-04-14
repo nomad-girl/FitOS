@@ -14,6 +14,7 @@ import {
   type EnergyState,
 } from '@/lib/recovery'
 import { backfillTrainingData } from '@/lib/hevy/backfill'
+import { syncHevyWorkouts } from '@/lib/hevy/sync'
 
 // ── Visual Config ───────────────────────────────────────────────────
 
@@ -187,11 +188,13 @@ export default function RecoveryPage() {
       const userId = await getUserId()
       const today = todayLocal()
 
-      // Backfill once ever (not blocking page load)
-      const backfillKey = 'fitos:backfill-v2'
-      if (!backfilled && !localStorage.getItem(backfillKey)) {
-        backfillTrainingData(userId).then(() => {
-          localStorage.setItem(backfillKey, Date.now().toString())
+      // One-time volume fix: re-sync from Hevy to get correct totals
+      const volumeFixKey = 'fitos:volume-fix-v1'
+      if (!backfilled && !localStorage.getItem(volumeFixKey)) {
+        syncHevyWorkouts(userId).then(() => {
+          localStorage.setItem(volumeFixKey, Date.now().toString())
+          // Then backfill to enrich any remaining gaps
+          return backfillTrainingData(userId)
         }).catch(() => {})
         setBackfilled(true)
       }

@@ -189,7 +189,7 @@ export default function RecoveryPage() {
       const today = todayLocal()
 
       // One-time volume fix: re-sync from Hevy to get correct totals
-      const volumeFixKey = 'fitos:volume-fix-v2'
+      const volumeFixKey = 'fitos:volume-fix-v3'
       if (!backfilled && !localStorage.getItem(volumeFixKey)) {
         syncHevyWorkouts(userId).then(() => {
           localStorage.setItem(volumeFixKey, Date.now().toString())

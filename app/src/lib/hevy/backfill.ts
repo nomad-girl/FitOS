@@ -1,6 +1,7 @@
 /**
  * Backfill training metrics from executed_sessions into daily_logs.
- * Recalculates volume from actual sets (matching Hevy's total).
+ * Uses the total_volume_kg from executed_sessions (calculated by sync from Hevy API)
+ * rather than recalculating from stored sets (which may be incomplete for older data).
  */
 import { createClient } from '@/lib/supabase/client'
 import { classifyStimulus } from '@/lib/recovery'
@@ -41,7 +42,7 @@ export async function backfillTrainingData(userId: string): Promise<number> {
       executed_sets: Array<{ weight_kg: number | null; reps: number | null; rpe: number | null }>
     }>
 
-    // Compute metrics from all stored sets
+    // Compute RPE metrics from stored sets
     const allSets = exercises.flatMap(ex => ex.executed_sets ?? [])
     const rpes = allSets.map(s => s.rpe).filter((r): r is number => r != null)
     const rpeAvg = rpes.length > 0
@@ -51,17 +52,9 @@ export async function backfillTrainingData(userId: string): Promise<number> {
     const totalSets = allSets.length
     const stimulus = classifyStimulus(rpeAvg, rpeMax, 0)
 
-    // Recalculate volume from sets (all sets, matching Hevy)
-    let recalcVolume = 0
-    for (const set of allSets) {
-      if (set.weight_kg && set.reps) {
-        recalcVolume += set.weight_kg * set.reps
-      }
-    }
-    // Use recalculated if we have sets, otherwise fall back to stored total
-    const volume = recalcVolume > 0
-      ? Math.round(recalcVolume * 10) / 10
-      : session.total_volume_kg
+    // Use the total_volume_kg from the session (set by sync from Hevy API)
+    // This is the authoritative value — don't recalculate from incomplete stored sets
+    const volume = session.total_volume_kg
 
     const trainingFields = {
       training_name: session.notes || 'Entrenamiento',
@@ -72,7 +65,6 @@ export async function backfillTrainingData(userId: string): Promise<number> {
       training_stimulus: stimulus,
     }
 
-    // Always upsert (update volume even if training_name exists)
     const { data: existingLog } = await supabase
       .from('daily_logs')
       .select('id')

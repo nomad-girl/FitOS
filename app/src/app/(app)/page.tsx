@@ -752,25 +752,32 @@ export default function DashboardPage() {
                   <td className="py-[7px] px-2 text-left font-semibold text-gray-500 text-[.72rem]">{'\uD83C\uDFCB\uFE0F'} Entreno</td>
                   {dayLabels.map((d) => {
                     const log = logsByDay[d]
-                    if (!log?.training_variant) return <td key={d} className="py-[7px] px-2 text-center text-gray-300">{'\u2014'}</td>
+                    const hasTraining = log?.training_name || log?.training_variant
+                    if (!hasTraining) return <td key={d} className="py-[7px] px-2 text-center text-gray-300">{'\u2014'}</td>
                     return (
                       <td key={d} className="py-[7px] px-2 text-center">
-                        <span className="font-bold text-primary text-[.75rem]">{log.training_variant}</span>
-                        {log.training_volume_kg ? <span className="text-gray-500 text-[.68rem] block">{(log.training_volume_kg / 1000).toFixed(1)}t</span> : null}
-                        {log.pr_count ? <span className="text-green-600 text-[.68rem] block">{log.pr_count}PR</span> : null}
+                        <span className="font-bold text-primary text-[.72rem] leading-tight block truncate max-w-[80px]">{log!.training_name || log!.training_variant}</span>
+                        {log!.training_volume_kg ? <span className="text-gray-500 text-[.68rem] block">{(log!.training_volume_kg / 1000).toFixed(1)}t</span> : null}
+                        {log!.training_rpe_avg ? <span className="text-orange-500 text-[.68rem] block">RPE {log!.training_rpe_avg}</span> : null}
+                        {log!.pr_count ? <span className="text-green-600 text-[.68rem] block">{log!.pr_count}PR</span> : null}
                       </td>
                     )
                   })}
                   <td className="py-[7px] px-2 text-center font-bold text-gray-800 text-[.72rem]">
                     {(() => {
-                      const trainDays = dayLabels.filter((d) => logsByDay[d]?.training_variant)
+                      const trainDays = dayLabels.filter((d) => logsByDay[d]?.training_name || logsByDay[d]?.training_variant)
                       const totalVol = trainDays.reduce((sum, d) => sum + (logsByDay[d]?.training_volume_kg ?? 0), 0)
                       const totalPrs = trainDays.reduce((sum, d) => sum + (logsByDay[d]?.pr_count ?? 0), 0)
+                      const avgRpe = (() => {
+                        const rpes = trainDays.map(d => logsByDay[d]?.training_rpe_avg).filter((r): r is number => r != null)
+                        return rpes.length > 0 ? Math.round(rpes.reduce((a, b) => a + b, 0) / rpes.length * 10) / 10 : null
+                      })()
                       if (trainDays.length === 0) return '\u2014'
                       return (
                         <>
                           <span>{trainDays.length}d</span>
                           {totalVol > 0 && <span className="block text-[.68rem] text-gray-500">{(totalVol / 1000).toFixed(1)}t</span>}
+                          {avgRpe != null && <span className="block text-[.68rem] text-orange-500">RPE {avgRpe}</span>}
                           {totalPrs > 0 && <span className="block text-[.68rem] text-green-600">{totalPrs}PR</span>}
                         </>
                       )

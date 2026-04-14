@@ -12,6 +12,7 @@ interface HevySet {
   duration_seconds: number | null
   rpe: number | null
   custom_metric: number | null
+  is_personal_record?: boolean
 }
 
 interface HevyExercise {
@@ -101,6 +102,33 @@ async function getOrCreateMapping(
   return matchedExerciseId
 }
 
+// ─── Volume & PR helpers ──────────────────────────────────────────
+/** Calculate total volume matching Hevy: weight * reps for all sets.
+ *  For bodyweight exercises (weight_kg=0 or null), uses userWeight. */
+function calcVolume(workout: HevyWorkout, userWeight: number): number {
+  let total = 0
+  for (const ex of workout.exercises) {
+    for (const set of ex.sets) {
+      if (set.reps) {
+        const w = (set.weight_kg != null && set.weight_kg > 0) ? set.weight_kg : userWeight
+        total += w * set.reps
+      }
+    }
+  }
+  return Math.round(total * 10) / 10
+}
+
+/** Count personal records across all sets */
+function countPRs(workout: HevyWorkout): number {
+  let count = 0
+  for (const ex of workout.exercises) {
+    for (const set of ex.sets) {
+      if (set.is_personal_record) count++
+    }
+  }
+  return count
+}
+
 // ─── Main sync function ────────────────────────────────────────────
 export async function syncHevyWorkouts(
   userId: string,
@@ -111,6 +139,17 @@ export async function syncHevyWorkouts(
 
   try {
     onProgress?.('Consultando workouts en Hevy...')
+
+    // Fetch user weight for bodyweight exercise volume calculation
+    const { data: latestCheckin } = await supabase
+      .from('weekly_checkins')
+      .select('weight_kg')
+      .eq('user_id', userId)
+      .not('weight_kg', 'is', null)
+      .order('checkin_date', { ascending: false })
+      .limit(1)
+      .single()
+    const userWeight = latestCheckin?.weight_kg ?? 60 // fallback 60kg
 
     // Fetch first 3 pages (most recent workouts)
     const pagesToFetch = 3
@@ -135,26 +174,21 @@ export async function syncHevyWorkouts(
           .single()
 
         if (existingSession) {
-          // Recalculate and update volume to match Hevy (includes all sets)
-          let recalcVolume = 0
-          for (const ex of workout.exercises) {
-            for (const set of ex.sets) {
-              if (set.weight_kg && set.reps) {
-                recalcVolume += set.weight_kg * set.reps
-              }
-            }
-          }
+          // Recalculate volume (with bodyweight) and PR count
+          const recalcVolume = calcVolume(workout, userWeight)
+          const prCount = countPRs(workout)
           const sessionDate = dateToLocal(new Date(workout.start_time))
-          await supabase
-            .from('executed_sessions')
-            .update({ total_volume_kg: Math.round(recalcVolume * 10) / 10 })
-            .eq('id', existingSession.id)
-          // Also update daily_log volume
-          await supabase
-            .from('daily_logs')
-            .update({ training_volume_kg: Math.round(recalcVolume * 10) / 10 })
-            .eq('user_id', userId)
-            .eq('log_date', sessionDate)
+          await Promise.all([
+            supabase
+              .from('executed_sessions')
+              .update({ total_volume_kg: recalcVolume })
+              .eq('id', existingSession.id),
+            supabase
+              .from('daily_logs')
+              .update({ training_volume_kg: recalcVolume, pr_count: prCount > 0 ? prCount : null })
+              .eq('user_id', userId)
+              .eq('log_date', sessionDate),
+          ])
           result.skipped++
           continue
         }
@@ -166,15 +200,9 @@ export async function syncHevyWorkouts(
           (endTime.getTime() - startTime.getTime()) / 60000
         )
 
-        // Calculate total volume (all sets, matching Hevy's calculation)
-        let totalVolumeKg = 0
-        for (const ex of workout.exercises) {
-          for (const set of ex.sets) {
-            if (set.weight_kg && set.reps) {
-              totalVolumeKg += set.weight_kg * set.reps
-            }
-          }
-        }
+        // Calculate total volume (all sets, including bodyweight @ userWeight)
+        const totalVolumeKg = calcVolume(workout, userWeight)
+        const prCount = countPRs(workout)
 
         // Insert executed_session
         const sessionDate = dateToLocal(startTime)
@@ -275,7 +303,7 @@ export async function syncHevyWorkouts(
         }
 
         const uniqueMuscleGroups = [...new Set(muscleGroups)]
-        const stimulus = classifyStimulus(rpeAvg, rpeMax, 0) // PRs computed separately
+        const stimulus = classifyStimulus(rpeAvg, rpeMax, prCount)
 
         // Upsert training fields into daily_log
         const { data: existingLog } = await supabase
@@ -287,12 +315,13 @@ export async function syncHevyWorkouts(
 
         const trainingFields = {
           training_name: workout.title || null,
-          training_volume_kg: Math.round(totalVolumeKg * 10) / 10,
+          training_volume_kg: totalVolumeKg,
           training_sets: totalSets,
           training_rpe_avg: rpeAvg,
           training_rpe_max: rpeMax,
           training_stimulus: stimulus,
           training_muscle_groups: uniqueMuscleGroups.length > 0 ? uniqueMuscleGroups : null,
+          pr_count: prCount > 0 ? prCount : null,
         }
 
         if (existingLog) {

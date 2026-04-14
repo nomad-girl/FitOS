@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { todayLocal, dateToLocal } from '@/lib/date-utils'
 import { stimulusLabel, stimulusColor } from '@/lib/recovery'
 
@@ -155,8 +156,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
     resetFields()
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const { data } = await supabase
         .from('daily_logs')
@@ -276,8 +276,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
     setSaving(true)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const logData = {
         user_id: userId,
@@ -355,8 +354,7 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
     setDeleting(true)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       // Delete associated fatigue_entries first
       await supabase

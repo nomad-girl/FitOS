@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { todayLocal } from '@/lib/date-utils'
 import type { Phase } from '@/lib/supabase/types'
 
@@ -441,8 +442,7 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
     setSaving(true)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const phaseData = {
         user_id: userId,

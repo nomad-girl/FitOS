@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { RightPanel } from '@/components/layout/right-panel'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { getCached, setCache, invalidateCache } from '@/lib/cache'
 import { dateToLocal } from '@/lib/date-utils'
 import { stimulusLabel, stimulusColor } from '@/lib/recovery'
@@ -233,8 +234,7 @@ export default function JournalPage() {
       }
 
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const [{ data: allCheckins }, { data: allDecisions }] = await Promise.all([
         supabase
@@ -291,8 +291,7 @@ export default function JournalPage() {
       }
 
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       // Fetch decisions with their checkins
       const { data: decisions } = await supabase
@@ -448,8 +447,7 @@ export default function JournalPage() {
       }
 
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       // Find the earliest date: phase start or first daily_log, whichever is older
       let effectiveStart = phaseStartDate
@@ -527,8 +525,7 @@ export default function JournalPage() {
     try {
       setSaving(true)
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const parseNum = (v: string) => v.trim() === '' ? null : Number(v)
 
@@ -582,8 +579,7 @@ export default function JournalPage() {
     try {
       setDeleting(true)
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       // Delete associated fatigue_entries first
       await supabase

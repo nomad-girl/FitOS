@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { useActivePhase } from '@/lib/hooks/useActivePhase'
 import { syncHevyWorkouts } from '@/lib/hevy/sync'
@@ -124,8 +125,7 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
     setSaveMessage(null)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const { error } = await supabase
         .from('profiles')
@@ -158,8 +158,7 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
     setSyncMessage(null)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const result = await syncHevyWorkouts(userId, (msg) => {
         setSyncMessage(msg)

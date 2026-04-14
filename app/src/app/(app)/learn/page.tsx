@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { RightPanel } from '@/components/layout/right-panel'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { getCached, setCache, invalidateCache } from '@/lib/cache'
 import type { LearnResource } from '@/lib/supabase/types'
 
@@ -103,8 +104,7 @@ export default function LearnPage() {
     }
 
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+    const userId = await getUserId()
 
     const { data, error } = await supabase
       .from('learn_resources')
@@ -193,8 +193,7 @@ export default function LearnPage() {
     setAddSaving(true)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       // Combine all tags: regular + muscle groups + exercises
       const allTags = [...new Set([...addTags, ...addMuscleGroups, ...addExercises])]

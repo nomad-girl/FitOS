@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { todayLocal } from '@/lib/date-utils'
 import type { DailyLog, FatigueEntry } from '@/lib/supabase/types'
 
@@ -17,8 +18,7 @@ export function useDailyLog(date?: string) {
     try {
       setLoading(true)
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const { data, error: fetchError } = await supabase
         .from('daily_logs')

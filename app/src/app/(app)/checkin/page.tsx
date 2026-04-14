@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { useProfile } from '@/lib/hooks/useProfile'
 import { getCached, setCache, invalidateCache } from '@/lib/cache'
 import { dateToLocal, parseLocalDate } from '@/lib/date-utils'
@@ -121,8 +122,7 @@ export default function CheckinPage() {
       }
 
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       // Reset form fields before loading new data
       setWeight('')
@@ -279,8 +279,7 @@ export default function CheckinPage() {
     setSaving(true)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const checkinData = {
         user_id: userId,
@@ -377,8 +376,7 @@ export default function CheckinPage() {
     setSavingDecision(true)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       // Delete existing decisions
       await supabase

@@ -6,6 +6,7 @@ import { ProgressBar } from '@/components/ui/progress-bar'
 import { PhaseWizard } from '@/components/shared/phase-wizard'
 import { MacrocycleWizard } from '@/components/shared/macrocycle-wizard'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { RightPanel } from '@/components/layout/right-panel'
 import { getCached, setCache, invalidateCache } from '@/lib/cache'
 import type { Phase, RoutineWithExercises } from '@/lib/supabase/types'
@@ -86,8 +87,7 @@ export default function PlanPage() {
       }
 
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       // Fetch macrocycles
       const { data: macrosData } = await supabase
@@ -222,8 +222,7 @@ export default function PlanPage() {
   async function activatePhase(phase: Phase) {
     if (!confirm(`Activar fase "${phase.name}"? La fase activa actual se pausara.`)) return
     const supabase = createClient()
-    const { data: { user } } = await supabase.auth.getUser()
-    const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+    const userId = await getUserId()
 
     // Pause current active phase
     await supabase
@@ -261,8 +260,7 @@ export default function PlanPage() {
     setAddingExercise(true)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       // Upsert exercise into local exercises table
       let exerciseId: string
@@ -1564,8 +1562,7 @@ function RoutineWizard({
 
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const { data: routine, error: routineErr } = await supabase
         .from('routines')

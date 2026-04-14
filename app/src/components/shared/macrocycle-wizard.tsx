@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 
 interface MacrocycleWizardProps {
   open: boolean
@@ -27,8 +28,7 @@ export function MacrocycleWizard({ open, onClose, existingMacro }: MacrocycleWiz
     setSaving(true)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       const data = {
         user_id: userId,

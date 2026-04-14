@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { getUserId } from '@/lib/supabase/auth-cache'
 import { RightPanel } from '@/components/layout/right-panel'
 import { dateToLocal } from '@/lib/date-utils'
 import { computeWeeklyScore } from '@/lib/weekly-score'
@@ -92,8 +93,7 @@ export default function ProgressPage() {
     try {
       setLoading(true)
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id ?? '4c870837-a1aa-45f9-b91c-91b216b2eaed'
+      const userId = await getUserId()
 
       // ─── Profile (week_start_day, targets) ─────
       const { data: profile } = await supabase
@@ -220,9 +220,7 @@ export default function ProgressPage() {
     setSavingMilestone(true)
     try {
       const supabase = createClient()
-      const { data: { user } } = await supabase.auth.getUser()
-      const userId = user?.id
-      if (!userId) return
+      const userId = await getUserId()
 
       const { error } = await supabase.from('milestones').insert({
         user_id: userId,

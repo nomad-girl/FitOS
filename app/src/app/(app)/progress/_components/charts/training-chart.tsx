@@ -2,8 +2,8 @@
 
 import { useState } from 'react'
 import {
-  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip,
+  ResponsiveContainer, ComposedChart, Bar, Line, Scatter, XAxis, YAxis, CartesianGrid,
+  Tooltip, Cell,
 } from 'recharts'
 
 interface Props {
@@ -11,13 +11,14 @@ interface Props {
 }
 
 const VARS = [
-  { key: 'volume', label: 'Volumen', color: '#F97316', type: 'bar' as const },
-  { key: 'sets', label: 'Series', color: '#10B981', type: 'line' as const },
-  { key: 'rpe', label: 'RPE', color: '#EF4444', type: 'line' as const },
+  { key: 'volume', label: 'Volumen', color: '#F97316' },
+  { key: 'sets', label: 'Series', color: '#10B981' },
+  { key: 'rpe', label: 'RPE', color: '#EF4444' },
+  { key: 'prs', label: 'PRs', color: '#FBBF24' },
 ]
 
 export function TrainingChart({ dailyLogs }: Props) {
-  const [activeVars, setActiveVars] = useState<Record<string, boolean>>({ volume: true, sets: true, rpe: true })
+  const [activeVars, setActiveVars] = useState<Record<string, boolean>>({ volume: true, sets: true, rpe: true, prs: true })
 
   const trainingDays = dailyLogs.filter(l => l.training_volume_kg != null && l.training_volume_kg > 0)
   if (trainingDays.length === 0) return null
@@ -29,6 +30,7 @@ export function TrainingChart({ dailyLogs }: Props) {
       volume: l.training_volume_kg ? Math.round(l.training_volume_kg) : null,
       sets: l.training_sets,
       rpe: l.training_rpe_avg,
+      prs: l.pr_count ?? 0,
       name: l.training_name,
     }
   })
@@ -36,6 +38,7 @@ export function TrainingChart({ dailyLogs }: Props) {
   const showVolume = activeVars.volume
   const showSets = activeVars.sets
   const showRpe = activeVars.rpe
+  const showPRs = activeVars.prs
 
   return (
     <div>
@@ -65,14 +68,16 @@ export function TrainingChart({ dailyLogs }: Props) {
           {showVolume && <YAxis yAxisId="vol" tick={{ fontSize: 10, fill: '#9CA3AF' }} />}
           {/* Right axis: RPE (0-10) or sets — whichever is shown */}
           {showRpe && <YAxis yAxisId="rpe" orientation="right" tick={{ fontSize: 10, fill: '#EF4444' }} domain={[0, 10]} />}
-          {showSets && !showRpe && <YAxis yAxisId="sets" orientation="right" tick={{ fontSize: 10, fill: '#10B981' }} />}
-          {showSets && showRpe && <YAxis yAxisId="sets" hide domain={['auto', 'auto']} />}
+          {(showSets || showPRs) && !showRpe && <YAxis yAxisId="sets" orientation="right" tick={{ fontSize: 10, fill: '#10B981' }} />}
+          {(showSets || showPRs) && showRpe && <YAxis yAxisId="sets" hide domain={['auto', 'auto']} />}
+          {!showSets && !showPRs && !showRpe && !showVolume && <YAxis yAxisId="sets" hide />}
           <Tooltip
             contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #E5E7EB' }}
             formatter={(value: any, name: any) => {
               if (name === 'volume') return [`${Number(value).toLocaleString()} kg`, 'Volumen']
               if (name === 'sets') return [value, 'Series']
               if (name === 'rpe') return [value, 'RPE']
+              if (name === 'prs') return [value, 'PRs']
               return [value, name]
             }}
             labelFormatter={(label, payload) => {
@@ -88,6 +93,19 @@ export function TrainingChart({ dailyLogs }: Props) {
           )}
           {showRpe && (
             <Line type="monotone" dataKey="rpe" yAxisId="rpe" stroke="#EF4444" strokeWidth={2} dot={{ r: 3, fill: '#EF4444', stroke: 'white', strokeWidth: 1.5 }} connectNulls name="rpe" />
+          )}
+          {showPRs && (
+            <Scatter dataKey="prs" yAxisId="sets" name="prs" fill="#FBBF24">
+              {data.map((entry, i) => (
+                <Cell
+                  key={i}
+                  fill={entry.prs > 0 ? '#FBBF24' : 'transparent'}
+                  stroke={entry.prs > 0 ? '#F59E0B' : 'transparent'}
+                  strokeWidth={1.5}
+                  r={entry.prs > 0 ? Math.min(4 + entry.prs * 2, 10) : 0}
+                />
+              ))}
+            </Scatter>
           )}
         </ComposedChart>
       </ResponsiveContainer>

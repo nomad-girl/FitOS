@@ -47,6 +47,7 @@ export default function DashboardPage() {
   const [expandedScoreKey, setExpandedScoreKey] = useState<string | null>(null)
   const [chartPeriod, setChartPeriod] = useState<'1S' | '2S' | '1M' | '3M'>('1S')
   const [chartLogs, setChartLogs] = useState<import('@/lib/supabase/types').DailyLog[]>([])
+  const [chartTooltip, setChartTooltip] = useState<{ x: number; y: number; label: string; values: { name: string; value: string; color: string }[] } | null>(null)
   const [chartVars, setChartVars] = useState<Record<string, boolean>>({
     calories: true,
     protein: true,
@@ -870,11 +871,9 @@ export default function DashboardPage() {
                 let chartDayLabels: string[]
 
                 if (chartPeriod === '1S') {
-                  // Use weekly table logs
                   chartDataLogs = dayLabels.map(d => logsByDay[d]).filter((l): l is ChartLog => l != null)
                   chartDayLabels = dayLabels
                 } else {
-                  // Use fetched longer-period logs
                   chartDataLogs = chartLogs as ChartLog[]
                   chartDayLabels = chartDataLogs.map(l => {
                     const d = new Date(l.log_date + 'T12:00:00')
@@ -893,9 +892,37 @@ export default function DashboardPage() {
                 const svgW = Math.max(350, numPoints * 28)
                 const showDotValues = numPoints <= 14
 
+                const variableDefs = [
+                  { key: 'calories', label: 'Cal', color: '#0EA5E9', getValue: (log: ChartLog | null) => log?.calories, scale: (v: number) => Math.min(v / 3000, 1), format: (v: number) => `${v} kcal` },
+                  { key: 'protein', label: 'Prot', color: '#8B5CF6', getValue: (log: ChartLog | null) => log?.protein_g, scale: (v: number) => Math.min(v / 250, 1), format: (v: number) => `${v}g` },
+                  { key: 'energy', label: 'Energía', color: '#10B981', getValue: (log: ChartLog | null) => log?.energy, scale: (v: number) => v / 5, format: (v: number) => `${v}/5` },
+                  { key: 'hunger', label: 'Hambre', color: '#F59E0B', getValue: (log: ChartLog | null) => log?.hunger, scale: (v: number) => v / 5, format: (v: number) => `${v}/5` },
+                  { key: 'fatigue', label: 'Fatiga', color: '#EF4444', getValue: (log: ChartLog | null) => log?.fatigue_level, scale: (v: number) => v / 5, format: (v: number) => `${v}/5` },
+                  { key: 'steps', label: 'Pasos', color: '#06B6D4', getValue: (log: ChartLog | null) => log?.steps, scale: (v: number) => Math.min(v / 20000, 1), format: (v: number) => `${(v / 1000).toFixed(1)}k` },
+                  { key: 'sleep', label: 'Sueño', color: '#6366F1', getValue: (log: ChartLog | null) => log?.sleep_hours, scale: (v: number) => Math.min(v / 10, 1), format: (v: number) => `${v}h` },
+                  { key: 'training', label: 'Volumen', color: '#F97316', getValue: (log: ChartLog | null) => log?.training_volume_kg, scale: (v: number) => Math.min(v / 15000, 1), format: (v: number) => `${(v / 1000).toFixed(1)}t` },
+                ] as const
+
+                const activeVars = variableDefs.filter(v => chartVars[v.key])
+
+                // Handle tap on a column to show tooltip
+                const handleColumnTap = (dayLabel: string, cx: number) => {
+                  const log = chartLogsByLabel[dayLabel]
+                  if (!log) { setChartTooltip(null); return }
+                  const values: { name: string; value: string; color: string }[] = []
+                  for (const v of activeVars) {
+                    const raw = v.getValue(log)
+                    if (raw != null) values.push({ name: v.label, value: v.format(raw), color: v.color })
+                  }
+                  if (values.length === 0) { setChartTooltip(null); return }
+                  // Toggle off if tapping same column
+                  if (chartTooltip && chartTooltip.label === dayLabel) { setChartTooltip(null); return }
+                  setChartTooltip({ x: cx, y: 10, label: dayLabel, values })
+                }
+
                 return (
-                  <div className="relative h-[220px] w-full overflow-x-auto">
-                    <svg width={svgW} height="220" viewBox={`0 0 ${svgW} 220`} className="overflow-visible">
+                  <div className="relative h-[260px] w-full overflow-x-auto" onScroll={() => setChartTooltip(null)}>
+                    <svg width={svgW} height="260" viewBox={`0 0 ${svgW} 260`} className="overflow-visible">
                       {/* Grid lines */}
                       {[0, 1, 2, 3, 4].map((i) => (
                         <line key={i} x1="5" y1={10 + i * 45} x2={svgW - 5} y2={10 + i * 45} stroke="#F3F4F6" strokeWidth="0.5" />
@@ -910,17 +937,31 @@ export default function DashboardPage() {
                         ) : null
                       })}
 
+                      {/* Invisible tap columns for each day */}
+                      {chartDayLabels.map((d, i) => {
+                        const colW = (svgW - 10) / numPoints
+                        const cx = 5 + i * colW + colW / 2
+                        return (
+                          <rect
+                            key={`tap-${i}`}
+                            x={cx - colW / 2}
+                            y="0"
+                            width={colW}
+                            height="210"
+                            fill="transparent"
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => handleColumnTap(d, cx)}
+                          />
+                        )
+                      })}
+
+                      {/* Vertical highlight line when tooltip active */}
+                      {chartTooltip && (
+                        <line x1={chartTooltip.x} y1="5" x2={chartTooltip.x} y2="200" stroke="#D1D5DB" strokeWidth="1" strokeDasharray="3,3" />
+                      )}
+
                       {/* Plot each enabled variable */}
-                      {([
-                        { key: 'calories', color: '#0EA5E9', getValue: (log: ChartLog | null) => log?.calories, scale: (v: number) => Math.min(v / 3000, 1) },
-                        { key: 'protein', color: '#8B5CF6', getValue: (log: ChartLog | null) => log?.protein_g, scale: (v: number) => Math.min(v / 250, 1) },
-                        { key: 'energy', color: '#10B981', getValue: (log: ChartLog | null) => log?.energy, scale: (v: number) => v / 5 },
-                        { key: 'hunger', color: '#F59E0B', getValue: (log: ChartLog | null) => log?.hunger, scale: (v: number) => v / 5 },
-                        { key: 'fatigue', color: '#EF4444', getValue: (log: ChartLog | null) => log?.fatigue_level, scale: (v: number) => v / 5 },
-                        { key: 'steps', color: '#06B6D4', getValue: (log: ChartLog | null) => log?.steps, scale: (v: number) => Math.min(v / 20000, 1) },
-                        { key: 'sleep', color: '#6366F1', getValue: (log: ChartLog | null) => log?.sleep_hours, scale: (v: number) => Math.min(v / 10, 1) },
-                        { key: 'training', color: '#F97316', getValue: (log: ChartLog | null) => log?.training_volume_kg, scale: (v: number) => Math.min(v / 15000, 1) },
-                      ] as const).filter((v) => chartVars[v.key]).map((variable) => {
+                      {activeVars.map((variable) => {
                         const colW = (svgW - 10) / numPoints
                         const points: { x: number; y: number; value: number }[] = []
                         chartDayLabels.forEach((d, i) => {
@@ -961,6 +1002,28 @@ export default function DashboardPage() {
                         )
                       })}
                     </svg>
+
+                    {/* Floating tooltip card */}
+                    {chartTooltip && (
+                      <div
+                        className="absolute z-10 pointer-events-none"
+                        style={{
+                          left: `${Math.min(Math.max(chartTooltip.x - 60, 8), svgW - 128)}px`,
+                          top: '220px',
+                        }}
+                      >
+                        <div className="bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-2 min-w-[120px]">
+                          <p className="text-[10px] font-bold text-gray-500 mb-1">{chartTooltip.label}</p>
+                          {chartTooltip.values.map((v, i) => (
+                            <div key={i} className="flex items-center gap-1.5 text-[11px] leading-[18px]">
+                              <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: v.color }} />
+                              <span className="text-gray-500">{v.name}:</span>
+                              <span className="font-semibold text-gray-800 ml-auto">{v.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })()}

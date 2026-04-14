@@ -9,6 +9,7 @@ const navItems = [
   { href: '/progress', icon: '\u{1F4C8}', label: 'Progreso' },
   { href: '/journal', icon: '\u{1F4D3}', label: 'Diario' },
   { href: '/learn', icon: '\u{1F4DA}', label: 'Aprender' },
+  { href: '/recovery', icon: '\u{1F504}', label: 'Recovery' },
 ]
 
 export function Sidebar() {

@@ -375,6 +375,15 @@ export interface Database {
           training_volume_kg: number | null
           training_variant: string | null
           pr_count: number | null
+          mood: number | null
+          fatigue_upper: number | null
+          fatigue_lower: number | null
+          training_stimulus: string | null
+          training_name: string | null
+          training_rpe_avg: number | null
+          training_rpe_max: number | null
+          training_sets: number | null
+          training_muscle_groups: string[] | null
           notes: string | null
           created_at: string
           updated_at: string
@@ -395,6 +404,15 @@ export interface Database {
           training_volume_kg?: number | null
           training_variant?: string | null
           pr_count?: number | null
+          mood?: number | null
+          fatigue_upper?: number | null
+          fatigue_lower?: number | null
+          training_stimulus?: string | null
+          training_name?: string | null
+          training_rpe_avg?: number | null
+          training_rpe_max?: number | null
+          training_sets?: number | null
+          training_muscle_groups?: string[] | null
           notes?: string | null
           created_at?: string
           updated_at?: string
@@ -413,8 +431,65 @@ export interface Database {
           training_volume_kg?: number | null
           training_variant?: string | null
           pr_count?: number | null
+          mood?: number | null
+          fatigue_upper?: number | null
+          fatigue_lower?: number | null
+          training_stimulus?: string | null
+          training_name?: string | null
+          training_rpe_avg?: number | null
+          training_rpe_max?: number | null
+          training_sets?: number | null
+          training_muscle_groups?: string[] | null
           notes?: string | null
           updated_at?: string
+        }
+      }
+      recovery_snapshots: {
+        Row: {
+          id: string
+          user_id: string
+          snapshot_date: string
+          readiness_global: number | null
+          readiness_upper: number | null
+          readiness_lower: number | null
+          energy_score: number | null
+          phase_global: string | null
+          phase_upper: string | null
+          phase_lower: string | null
+          energy_state: string | null
+          system_reading: string | null
+          recommendation: string | null
+          input_data: Record<string, unknown> | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          snapshot_date: string
+          readiness_global?: number | null
+          readiness_upper?: number | null
+          readiness_lower?: number | null
+          energy_score?: number | null
+          phase_global?: string | null
+          phase_upper?: string | null
+          phase_lower?: string | null
+          energy_state?: string | null
+          system_reading?: string | null
+          recommendation?: string | null
+          input_data?: Record<string, unknown> | null
+        }
+        Update: {
+          readiness_global?: number | null
+          readiness_upper?: number | null
+          readiness_lower?: number | null
+          energy_score?: number | null
+          phase_global?: string | null
+          phase_upper?: string | null
+          phase_lower?: string | null
+          energy_state?: string | null
+          system_reading?: string | null
+          recommendation?: string | null
+          input_data?: Record<string, unknown> | null
         }
       }
       fatigue_entries: {
@@ -445,6 +520,9 @@ export interface Database {
           waist_cm: number | null
           hip_cm: number | null
           thigh_cm: number | null
+          low_hip_cm: number | null
+          resting_hr: number | null
+          hrv: number | null
           performance_trend: string | null
           avg_calories: number | null
           avg_protein: number | null
@@ -476,6 +554,9 @@ export interface Database {
           waist_cm?: number | null
           hip_cm?: number | null
           thigh_cm?: number | null
+          low_hip_cm?: number | null
+          resting_hr?: number | null
+          hrv?: number | null
           performance_trend?: string | null
           avg_calories?: number | null
           avg_protein?: number | null
@@ -505,6 +586,9 @@ export interface Database {
           waist_cm?: number | null
           hip_cm?: number | null
           thigh_cm?: number | null
+          low_hip_cm?: number | null
+          resting_hr?: number | null
+          hrv?: number | null
           performance_trend?: string | null
           avg_calories?: number | null
           avg_protein?: number | null
@@ -908,6 +992,9 @@ export type ExecutedSet = Tables['executed_sets']['Row']
 
 export type Milestone = Tables['milestones']['Row']
 export type MilestoneInsert = Tables['milestones']['Insert']
+
+export type RecoverySnapshot = Tables['recovery_snapshots']['Row']
+export type RecoverySnapshotInsert = Tables['recovery_snapshots']['Insert']
 
 export type CoachMemory = Tables['coach_memories']['Row']
 export type CoachMemoryInsert = Tables['coach_memories']['Insert']

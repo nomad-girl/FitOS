@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/client'
 import { dateToLocal } from '@/lib/date-utils'
+import { classifyStimulus, classifyMuscleZone } from '@/lib/recovery'
 
 // ─── Hevy API types ────────────────────────────────────────────────
 interface HevySet {
@@ -219,6 +220,74 @@ export async function syncHevyWorkouts(
               result.errors.push(`Sets de ${hevyExercise.title}: ${setsError.message}`)
             }
           }
+        }
+
+        // ─── Enrich daily_log with training metrics ────────────────
+        const allNormalSets = workout.exercises.flatMap(ex =>
+          ex.sets.filter(s => s.type === 'normal')
+        )
+        const rpesWithValues = allNormalSets.map(s => s.rpe).filter((r): r is number => r != null)
+        const rpeAvg = rpesWithValues.length > 0
+          ? Math.round((rpesWithValues.reduce((a, b) => a + b, 0) / rpesWithValues.length) * 10) / 10
+          : null
+        const rpeMax = rpesWithValues.length > 0
+          ? Math.max(...rpesWithValues)
+          : null
+        const totalSets = allNormalSets.length
+
+        // Fetch muscle groups from exercise templates via our proxy
+        const muscleGroups: string[] = []
+        try {
+          for (const ex of workout.exercises) {
+            const params = new URLSearchParams({
+              endpoint: `exercise_templates/${ex.exercise_template_id}`,
+            })
+            const res = await fetch(`/api/hevy?${params.toString()}`)
+            if (res.ok) {
+              const tmpl = await res.json()
+              if (tmpl.primary_muscle_group) {
+                muscleGroups.push(tmpl.primary_muscle_group)
+              }
+            }
+          }
+        } catch {
+          // non-critical: muscle groups are best-effort
+        }
+
+        const uniqueMuscleGroups = [...new Set(muscleGroups)]
+        const stimulus = classifyStimulus(rpeAvg, rpeMax, 0) // PRs computed separately
+
+        // Upsert training fields into daily_log
+        const { data: existingLog } = await supabase
+          .from('daily_logs')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('log_date', sessionDate)
+          .single()
+
+        const trainingFields = {
+          training_name: workout.title || null,
+          training_volume_kg: Math.round(totalVolumeKg * 10) / 10,
+          training_sets: totalSets,
+          training_rpe_avg: rpeAvg,
+          training_rpe_max: rpeMax,
+          training_stimulus: stimulus,
+          training_muscle_groups: uniqueMuscleGroups.length > 0 ? uniqueMuscleGroups : null,
+        }
+
+        if (existingLog) {
+          await supabase
+            .from('daily_logs')
+            .update(trainingFields)
+            .eq('id', existingLog.id)
+        } else {
+          await supabase
+            .from('daily_logs')
+            .insert({
+              user_id: userId,
+              log_date: sessionDate,
+              ...trainingFields,
+            })
         }
 
         result.synced++

@@ -3,14 +3,66 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { todayLocal, dateToLocal } from '@/lib/date-utils'
+import { stimulusLabel, stimulusColor } from '@/lib/recovery'
 
-const fatigueLabels = [
-  { value: 1, label: '1 \uD83D\uDCAA' },
-  { value: 2, label: '2 Bien' },
-  { value: 3, label: '3 Cargada' },
-  { value: 4, label: '4 Dolorida' },
-  { value: 5, label: '5 \uD83D\uDED1' },
+const hungerOptions = [
+  { value: 1, label: '1 \u00B7 No tuve hambre / me cost\u00F3 comer' },
+  { value: 2, label: '2 \u00B7 Hambre normal (solo en comidas)' },
+  { value: 3, label: '3 \u00B7 Tuve hambre entre comidas' },
+  { value: 4, label: '4 \u00B7 Hambre frecuente / dif\u00EDcil de ignorar' },
+  { value: 5, label: '5 \u00B7 Hambre constante / muy intensa' },
 ]
+
+const energyOptions = [
+  { value: 5, label: '5 \u00B7 Muy alta (me sent\u00ED activa todo el d\u00EDa)' },
+  { value: 4, label: '4 \u00B7 Buena (rend\u00ED bien)' },
+  { value: 3, label: '3 \u00B7 Normal (d\u00EDa ok)' },
+  { value: 2, label: '2 \u00B7 Baja (me cost\u00F3 funcionar)' },
+  { value: 1, label: '1 \u00B7 Muy baja (agotada)' },
+]
+
+const fatigueOptions = [
+  { value: 1, label: '1 \u00B7 Liviana / recuperada' },
+  { value: 2, label: '2 \u00B7 Normal' },
+  { value: 3, label: '3 \u00B7 Algo cargada' },
+  { value: 4, label: '4 \u00B7 Cargada' },
+  { value: 5, label: '5 \u00B7 Muy cargada / fatigada' },
+]
+
+const moodOptions = [
+  { value: 5, label: '5 \u00B7 Excelente (motivada, positiva)' },
+  { value: 4, label: '4 \u00B7 Bien' },
+  { value: 3, label: '3 \u00B7 Normal' },
+  { value: 2, label: '2 \u00B7 Baja (desmotivada, irritable)' },
+  { value: 1, label: '1 \u00B7 Muy baja (ansiosa, abrumada)' },
+]
+
+const fatigueUpperOptions = [
+  { value: 1, label: '1 \u00B7 Fresco' },
+  { value: 2, label: '2 \u00B7 Normal' },
+  { value: 3, label: '3 \u00B7 Algo cargado' },
+  { value: 4, label: '4 \u00B7 Cargado' },
+  { value: 5, label: '5 \u00B7 Muy cargado' },
+]
+
+const fatigueLowerOptions = [
+  { value: 1, label: '1 \u00B7 Fresco' },
+  { value: 2, label: '2 \u00B7 Normal' },
+  { value: 3, label: '3 \u00B7 Algo cargado' },
+  { value: 4, label: '4 \u00B7 Cargado' },
+  { value: 5, label: '5 \u00B7 Muy cargado' },
+]
+
+interface TrainingInfo {
+  name: string | null
+  volume: number | null
+  sets: number | null
+  rpeAvg: number | null
+  rpeMax: number | null
+  stimulus: string | null
+  muscleGroups: string[] | null
+  prCount: number | null
+}
 
 const fatigueZoneOptions = [
   'Todo el cuerpo', 'Gluteos', 'Piernas', 'Espalda', 'Hombros', 'Pecho', 'Brazos', 'Core', 'Espalda baja', 'Rodillas',
@@ -38,6 +90,13 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
   const [hunger, setHunger] = useState(3)
   const [fatigue, setFatigue] = useState(0)
   const [fatigueZones, setFatigueZones] = useState<string[]>([])
+  const [mood, setMood] = useState(3)
+  const [fatigueUpper, setFatigueUpper] = useState(0)
+  const [fatigueLower, setFatigueLower] = useState(0)
+  const [trainingVariant, setTrainingVariant] = useState('')
+  const [trainingVolume, setTrainingVolume] = useState('')
+  const [prCount, setPrCount] = useState('')
+  const [trainingInfo, setTrainingInfo] = useState<TrainingInfo | null>(null)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [existingLogId, setExistingLogId] = useState<string | null>(null)
@@ -65,8 +124,15 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
     setSleepHours('')
     setEnergy(3)
     setHunger(3)
+    setMood(3)
     setFatigue(0)
+    setFatigueUpper(0)
+    setFatigueLower(0)
     setFatigueZones([])
+    setTrainingVariant('')
+    setTrainingVolume('')
+    setPrCount('')
+    setTrainingInfo(null)
     setExistingLogId(null)
   }
 
@@ -110,6 +176,26 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
         if (data.fatigue_level != null) setFatigue(data.fatigue_level)
         if (data.fatigue_entries && data.fatigue_entries.length > 0) {
           setFatigueZones(data.fatigue_entries.map((e: { zone: string }) => e.zone))
+        }
+        if (data.training_variant) setTrainingVariant(data.training_variant)
+        if (data.training_volume_kg != null) setTrainingVolume(String(data.training_volume_kg))
+        if (data.pr_count != null) setPrCount(String(data.pr_count))
+        if (data.mood != null) setMood(data.mood)
+        if (data.fatigue_upper != null) setFatigueUpper(data.fatigue_upper)
+        if (data.fatigue_lower != null) setFatigueLower(data.fatigue_lower)
+
+        // Load auto-detected training info
+        if (data.training_name || data.training_stimulus) {
+          setTrainingInfo({
+            name: data.training_name,
+            volume: data.training_volume_kg,
+            sets: data.training_sets,
+            rpeAvg: data.training_rpe_avg,
+            rpeMax: data.training_rpe_max,
+            stimulus: data.training_stimulus,
+            muscleGroups: data.training_muscle_groups,
+            prCount: data.pr_count,
+          })
         }
       }
     } catch {
@@ -202,7 +288,13 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
         sleep_hours: sleepHours ? parseFloat(sleepHours) : null,
         energy,
         hunger,
+        mood,
         fatigue_level: fatigue || null,
+        fatigue_upper: fatigueUpper || null,
+        fatigue_lower: fatigueLower || null,
+        training_variant: trainingVariant || null,
+        training_volume_kg: trainingVolume ? parseInt(trainingVolume) : null,
+        pr_count: prCount ? parseInt(prCount) : null,
         updated_at: new Date().toISOString(),
       }
 
@@ -220,6 +312,8 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
 
       localStorage.removeItem(LOG_DRAFT_KEY)
       setHasUnsavedChanges(false)
+      // Notify dashboard to refresh data
+      window.dispatchEvent(new CustomEvent('daily-log-saved'))
 
       // Save fatigue entries if fatigue >= 3
       if (savedLog && fatigue >= 3 && fatigueZones.length > 0) {
@@ -416,61 +510,169 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
               </div>
             </div>
 
-            {/* Energy & Hunger */}
-            <div className="grid grid-cols-2 gap-3 mb-[18px]">
-              <div>
-                <label className="text-[.77rem] text-gray-400 block mb-1.5">Energia</label>
-                <div className="flex gap-1.5">
-                  {[1, 2, 3, 4, 5].map((n) => (
-                    <button
-                      key={n}
-                      onClick={() => { setEnergy(n); markChanged() }}
-                      className={`w-9 h-9 rounded-[var(--radius-sm)] border-[1.5px] font-semibold text-[.82rem] flex items-center justify-center cursor-pointer transition-all duration-200 ${
-                        energy === n
-                          ? 'bg-primary text-white border-primary'
-                          : 'border-gray-200 text-gray-500 hover:border-primary hover:text-primary'
-                      }`}
+            {/* Entrenamiento (auto from Hevy or manual) */}
+            {trainingInfo ? (
+              <div className="mb-[18px] rounded-[var(--radius)] border-[1.5px] border-gray-200 p-3.5 bg-gray-50/50">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[.77rem] text-gray-400">{'\uD83C\uDFCB\uFE0F'} Entrenamiento (Hevy)</label>
+                  {trainingInfo.stimulus && (
+                    <span
+                      className="text-[.7rem] font-bold px-2.5 py-0.5 rounded-full text-white"
+                      style={{ backgroundColor: stimulusColor[trainingInfo.stimulus as keyof typeof stimulusColor] || '#6B7280' }}
                     >
-                      {n}
-                    </button>
-                  ))}
+                      {stimulusLabel[trainingInfo.stimulus as keyof typeof stimulusLabel] || trainingInfo.stimulus}
+                    </span>
+                  )}
                 </div>
+                {trainingInfo.name && (
+                  <div className="font-semibold text-[.9rem] text-gray-800 mb-1.5">{trainingInfo.name}</div>
+                )}
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <div className="text-[.65rem] text-gray-400">Volumen</div>
+                    <div className="font-bold text-[.88rem] text-gray-700">
+                      {trainingInfo.volume ? `${Math.round(trainingInfo.volume / 1000 * 10) / 10}t` : '--'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[.65rem] text-gray-400">Sets</div>
+                    <div className="font-bold text-[.88rem] text-gray-700">{trainingInfo.sets ?? '--'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[.65rem] text-gray-400">RPE avg/max</div>
+                    <div className="font-bold text-[.88rem] text-gray-700">
+                      {trainingInfo.rpeAvg ?? '--'}/{trainingInfo.rpeMax ?? '--'}
+                    </div>
+                  </div>
+                </div>
+                {trainingInfo.muscleGroups && trainingInfo.muscleGroups.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {trainingInfo.muscleGroups.map((mg) => (
+                      <span key={mg} className="text-[.65rem] bg-primary/10 text-primary-dark px-2 py-0.5 rounded-full">{mg}</span>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="text-[.77rem] text-gray-400 block mb-1.5">Hambre</label>
-                <div className="flex gap-1.5">
-                  {[1, 2, 3, 4, 5].map((n) => (
+            ) : (
+              <div className="mb-[18px]">
+                <label className="text-[.77rem] text-gray-400 block mb-1.5">{'\uD83C\uDFCB\uFE0F'} Entrenamiento</label>
+                <div className="flex gap-2 mb-2">
+                  {['A', 'B', 'C'].map((v) => (
                     <button
-                      key={n}
-                      onClick={() => { setHunger(n); markChanged() }}
-                      className={`w-9 h-9 rounded-[var(--radius-sm)] border-[1.5px] font-semibold text-[.82rem] flex items-center justify-center cursor-pointer transition-all duration-200 ${
-                        hunger === n
+                      key={v}
+                      onClick={() => { setTrainingVariant(trainingVariant === v ? '' : v); markChanged() }}
+                      className={`flex-1 py-2 rounded-[var(--radius-sm)] border-[1.5px] font-semibold text-[.84rem] cursor-pointer transition-all duration-200 ${
+                        trainingVariant === v
                           ? 'bg-primary text-white border-primary'
                           : 'border-gray-200 text-gray-500 hover:border-primary hover:text-primary'
                       }`}
                     >
-                      {n}
+                      {v}
                     </button>
                   ))}
                 </div>
+                {trainingVariant && (
+                  <div className="grid grid-cols-2 gap-2 fade-in">
+                    <div>
+                      <label className="text-[.72rem] text-gray-400 block mb-1">Volumen (kg)</label>
+                      <input
+                        type="number"
+                        placeholder="9500"
+                        value={trainingVolume}
+                        onChange={(e) => { setTrainingVolume(e.target.value); markChanged() }}
+                        className="w-full py-2.5 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] focus:border-primary focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[.72rem] text-gray-400 block mb-1">PRs</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={prCount}
+                        onChange={(e) => { setPrCount(e.target.value); markChanged() }}
+                        className="w-full py-2.5 px-3 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] focus:border-primary focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Estado de Animo */}
+            <div className="mb-[18px]">
+              <label className="text-[.77rem] text-gray-400 block mb-1">{'\uD83D\uDE0A'} Como fue tu animo hoy?</label>
+              <div className="flex flex-col gap-1.5">
+                {moodOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setMood(opt.value); markChanged() }}
+                    className={`w-full text-left py-2 px-3 rounded-[var(--radius-sm)] border-[1.5px] text-[.82rem] font-medium cursor-pointer transition-all duration-200 ${
+                      mood === opt.value
+                        ? 'bg-primary text-white border-primary'
+                        : 'border-gray-200 text-gray-600 hover:border-primary hover:text-primary'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Fatigue */}
-            <div className="mb-4">
-              <label className="text-[.77rem] text-gray-400 block mb-1.5">{'\uD83E\uDDD8'} Como esta tu cuerpo hoy?</label>
-              <div className="flex gap-1.5 flex-wrap">
-                {fatigueLabels.map((f) => (
+            {/* Hambre - guided */}
+            <div className="mb-[18px]">
+              <label className="text-[.77rem] text-gray-400 block mb-1">{'\uD83C\uDF7D\uFE0F'} Como fue tu hambre hoy?</label>
+              <div className="flex flex-col gap-1.5">
+                {hungerOptions.map((opt) => (
                   <button
-                    key={f.value}
-                    onClick={() => { setFatigue(f.value); if (f.value < 3) setFatigueZones([]); markChanged() }}
-                    className={`h-9 px-2.5 rounded-[var(--radius-sm)] border-[1.5px] font-semibold text-[.78rem] flex items-center justify-center cursor-pointer transition-all duration-200 ${
-                      fatigue === f.value
+                    key={opt.value}
+                    onClick={() => { setHunger(opt.value); markChanged() }}
+                    className={`w-full text-left py-2 px-3 rounded-[var(--radius-sm)] border-[1.5px] text-[.82rem] font-medium cursor-pointer transition-all duration-200 ${
+                      hunger === opt.value
                         ? 'bg-primary text-white border-primary'
-                        : 'border-gray-200 text-gray-500 hover:border-primary hover:text-primary'
+                        : 'border-gray-200 text-gray-600 hover:border-primary hover:text-primary'
                     }`}
                   >
-                    {f.label}
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Energia - guided */}
+            <div className="mb-[18px]">
+              <label className="text-[.77rem] text-gray-400 block mb-1">{'\u26A1'} Como estuvo tu energia hoy?</label>
+              <div className="flex flex-col gap-1.5">
+                {energyOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setEnergy(opt.value); markChanged() }}
+                    className={`w-full text-left py-2 px-3 rounded-[var(--radius-sm)] border-[1.5px] text-[.82rem] font-medium cursor-pointer transition-all duration-200 ${
+                      energy === opt.value
+                        ? 'bg-primary text-white border-primary'
+                        : 'border-gray-200 text-gray-600 hover:border-primary hover:text-primary'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Fatiga - guided */}
+            <div className="mb-4">
+              <label className="text-[.77rem] text-gray-400 block mb-1">{'\uD83E\uDDD8'} Como sentis el cuerpo hoy?</label>
+              <div className="flex flex-col gap-1.5">
+                {fatigueOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setFatigue(opt.value); if (opt.value < 3) setFatigueZones([]); markChanged() }}
+                    className={`w-full text-left py-2 px-3 rounded-[var(--radius-sm)] border-[1.5px] text-[.82rem] font-medium cursor-pointer transition-all duration-200 ${
+                      fatigue === opt.value
+                        ? 'bg-primary text-white border-primary'
+                        : 'border-gray-200 text-gray-600 hover:border-primary hover:text-primary'
+                    }`}
+                  >
+                    {opt.label}
                   </button>
                 ))}
               </div>
@@ -497,6 +699,52 @@ export function QuickLogDrawer({ open, onClose }: QuickLogDrawerProps) {
                 </div>
               </div>
             )}
+
+            {/* Fatiga Tren Superior */}
+            <div className="mb-[18px]">
+              <label className="text-[.77rem] text-gray-400 block mb-1">{'\uD83D\uDCAA'} Fatiga tren superior</label>
+              <div className="flex gap-1.5">
+                {fatigueUpperOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setFatigueUpper(opt.value); markChanged() }}
+                    className={`flex-1 py-2 rounded-[var(--radius-sm)] border-[1.5px] text-[.78rem] font-medium cursor-pointer transition-all duration-200 ${
+                      fatigueUpper === opt.value
+                        ? 'bg-primary text-white border-primary'
+                        : 'border-gray-200 text-gray-500 hover:border-primary hover:text-primary'
+                    }`}
+                  >
+                    {opt.value}
+                  </button>
+                ))}
+              </div>
+              {fatigueUpper > 0 && (
+                <div className="text-[.72rem] text-gray-400 mt-1">{fatigueUpperOptions.find(o => o.value === fatigueUpper)?.label}</div>
+              )}
+            </div>
+
+            {/* Fatiga Tren Inferior */}
+            <div className="mb-4">
+              <label className="text-[.77rem] text-gray-400 block mb-1">{'\uD83E\uDDB5'} Fatiga tren inferior</label>
+              <div className="flex gap-1.5">
+                {fatigueLowerOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => { setFatigueLower(opt.value); markChanged() }}
+                    className={`flex-1 py-2 rounded-[var(--radius-sm)] border-[1.5px] text-[.78rem] font-medium cursor-pointer transition-all duration-200 ${
+                      fatigueLower === opt.value
+                        ? 'bg-primary text-white border-primary'
+                        : 'border-gray-200 text-gray-500 hover:border-primary hover:text-primary'
+                    }`}
+                  >
+                    {opt.value}
+                  </button>
+                ))}
+              </div>
+              {fatigueLower > 0 && (
+                <div className="text-[.72rem] text-gray-400 mt-1">{fatigueLowerOptions.find(o => o.value === fatigueLower)?.label}</div>
+              )}
+            </div>
 
             {/* Save */}
             <button

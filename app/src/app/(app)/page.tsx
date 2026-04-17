@@ -597,6 +597,27 @@ export default function DashboardPage() {
           const typeColor = meso.type === 'accumulation' ? '#2563eb' : meso.type === 'progression' ? '#7c3aed' : meso.type === 'peak' ? '#dc2626' : '#d97706'
           const typeBg = meso.type === 'accumulation' ? '#EEF4FB' : meso.type === 'progression' ? '#F1ECF7' : meso.type === 'peak' ? '#FBECEC' : '#FDF4DB'
 
+          // Totals: sum of per-muscle targets and actuals
+          const totalTarget = MUSCLE_VOLUME_PROGRESSION.reduce((sum, row) => sum + row[weekKey], 0)
+          const totalDone = MUSCLE_VOLUME_PROGRESSION.reduce((sum, row) => sum + (weeklyVolume[row.muscle] ?? 0), 0)
+          const totalPct = totalTarget > 0 ? Math.min(100, (totalDone / totalTarget) * 100) : 0
+          const totalColor = totalPct >= 100 ? '#10B981' : totalPct >= 50 ? typeColor : '#cbd5e1'
+
+          // Avg actual RPE from daily_logs.training_rpe_avg (only days where training happened)
+          const rpeVals = logs.map(l => l.training_rpe_avg).filter((v): v is number => v != null)
+          const avgRpe = rpeVals.length > 0 ? rpeVals.reduce((a, b) => a + b, 0) / rpeVals.length : null
+          const rpeTarget = meso.rpeTarget
+          const rpePct = avgRpe != null ? Math.min(100, (avgRpe / 10) * 100) : 0
+          // Color: green within ±0.5 of target, warning if >0.5 above, muted if >0.5 below, gray if no data
+          const rpeDelta = avgRpe != null ? avgRpe - rpeTarget : 0
+          const rpeColor = avgRpe == null
+            ? '#cbd5e1'
+            : Math.abs(rpeDelta) <= 0.5
+              ? '#10B981'
+              : rpeDelta > 0.5
+                ? '#dc2626'
+                : '#cbd5e1'
+
           return (
             <div className="bg-card rounded-[var(--radius)] p-[22px_26px] mb-[18px] shadow-[var(--shadow)] fade-in" style={{ animationDelay: '.05s' }}>
               <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
@@ -612,6 +633,32 @@ export default function DashboardPage() {
                 <Link href="/sistema" className="text-[.78rem] font-semibold text-primary no-underline">
                   Ver sistema →
                 </Link>
+              </div>
+
+              {/* Summary: total volume + avg RPE */}
+              <div className="space-y-2.5 mb-3 pb-3 border-b border-gray-100">
+                <div className="flex items-center gap-3 text-[.86rem]">
+                  <div className="w-[110px] text-gray-800 font-semibold">Total volumen</div>
+                  <div className="flex-1 h-2.5 rounded-full bg-gray-100 overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${totalPct}%`, background: totalColor }} />
+                  </div>
+                  <div className="w-[72px] text-right text-gray-500 tabular-nums text-[.82rem]">
+                    <span className="font-semibold text-gray-800">{totalDone % 1 === 0 ? totalDone : totalDone.toFixed(1)}</span>
+                    <span className="text-gray-400"> / {totalTarget}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-[.86rem]">
+                  <div className="w-[110px] text-gray-800 font-semibold">RPE medio</div>
+                  <div className="flex-1 h-2.5 rounded-full bg-gray-100 overflow-hidden relative">
+                    <div className="h-full rounded-full transition-all" style={{ width: `${rpePct}%`, background: rpeColor }} />
+                    {/* Target marker */}
+                    <div className="absolute top-[-2px] h-[14px] w-[2px] bg-gray-700" style={{ left: `${(rpeTarget / 10) * 100}%` }} />
+                  </div>
+                  <div className="w-[72px] text-right text-gray-500 tabular-nums text-[.82rem]">
+                    <span className="font-semibold text-gray-800">{avgRpe != null ? avgRpe.toFixed(1) : '--'}</span>
+                    <span className="text-gray-400"> / {rpeTarget}</span>
+                  </div>
+                </div>
               </div>
 
               <div className="space-y-2.5">

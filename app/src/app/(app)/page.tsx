@@ -17,6 +17,7 @@ import { computeWeeklyScore } from '@/lib/weekly-score'
 import type { Insight } from '@/lib/supabase/types'
 import { syncHevyWorkouts } from '@/lib/hevy/sync'
 import { backfillTrainingData } from '@/lib/hevy/backfill'
+import { resolveMesocycleWeek, formatMesoChip } from '@/lib/mesocycle'
 
 const allDays = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
 const weekDayMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
@@ -529,6 +530,19 @@ export default function DashboardPage() {
             <div>
               <div className="font-extrabold text-[1.15rem]">Semana {weekNumber} de {totalWeeks}</div>
               <div className="opacity-85 text-[.87rem]">{phaseName}</div>
+              {phase && (() => {
+                const meso = resolveMesocycleWeek(weekNumber)
+                return (
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    <span className="inline-flex items-center py-[3px] px-2.5 rounded-full text-[.72rem] font-bold bg-white/25 uppercase tracking-wide">
+                      {meso.typeLabel}
+                    </span>
+                    <span className="text-[.78rem] opacity-90 font-medium">
+                      {formatMesoChip(meso)}
+                    </span>
+                  </div>
+                )
+              })()}
             </div>
             <div className="flex gap-2 flex-wrap">
               <span className="inline-flex items-center gap-1 py-[5px] px-3 rounded-full text-[.78rem] font-medium bg-white/20">

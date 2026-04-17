@@ -6,10 +6,10 @@ import { usePathname } from 'next/navigation'
 const navItems = [
   { href: '/', icon: '\u{1F4CA}', label: 'Inicio' },
   { href: '/plan', icon: '\u{1F4CB}', label: 'Plan' },
+  { href: '/sistema', icon: '\u{1F4D0}', label: 'Sistema' },
   { href: '/progress', icon: '\u{1F4C8}', label: 'Progreso' },
   { href: '/journal', icon: '\u{1F4D3}', label: 'Diario' },
   { href: '/learn', icon: '\u{1F4DA}', label: 'Aprender' },
-  { href: '/recovery', icon: '\u{1F504}', label: 'Recovery' },
 ]
 
 export function Sidebar() {

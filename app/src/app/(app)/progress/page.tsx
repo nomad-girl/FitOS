@@ -11,6 +11,7 @@ import { TimeFrameSelector } from './_components/time-frame-selector'
 import { KPISummaryStrip } from './_components/kpi-summary-strip'
 import { ExportButton } from './_components/export-report'
 import { BodyCompositionChart } from './_components/charts/body-composition-chart'
+import { BodyCompCard } from './_components/body-comp-card'
 import { NutritionChart } from './_components/charts/nutrition-chart'
 import { TrainingChart } from './_components/charts/training-chart'
 import { WellbeingChart } from './_components/charts/wellbeing-chart'
@@ -218,6 +219,19 @@ export default function ProgressPage() {
               <div className="mb-5">
                 <KPISummaryStrip dailyLogs={dailyLogs} weeklyCheckins={weeklyCheckins} sessions={sessions} />
               </div>
+
+              {/* Body composition card — FFMI, lean mass, ratios */}
+              {weeklyCheckins.length > 0 && (
+                <BodyCompCard
+                  latestCheckin={weeklyCheckins[weeklyCheckins.length - 1] as {
+                    weight_kg: number | null
+                    body_fat_pct: number | null
+                    waist_cm: number | null
+                    hip_cm: number | null
+                  }}
+                  heightCm={(profile as { height_cm: number | null } | null)?.height_cm ?? null}
+                />
+              )}
 
               {/* Body Composition */}
               {weeklyCheckins.length >= 2 && (

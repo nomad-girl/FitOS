@@ -107,7 +107,7 @@ export function useAnalyticsData(range: TimeRange): AnalyticsData {
           .order('snapshot_date', { ascending: true }),
         supabase
           .from('profiles')
-          .select('calorie_target, protein_target, step_goal, sleep_goal, training_days_per_week, week_start_day')
+          .select('calorie_target, protein_target, step_goal, sleep_goal, training_days_per_week, week_start_day, height_cm')
           .eq('id', userId)
           .single(),
         supabase

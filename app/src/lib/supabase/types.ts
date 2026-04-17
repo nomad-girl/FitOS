@@ -805,6 +805,7 @@ export interface Database {
           exercise_id: string | null
           routine_exercise_id: string | null
           exercise_name: string | null
+          hevy_muscle_group: string | null
           display_order: number
           created_at: string
         }
@@ -814,6 +815,7 @@ export interface Database {
           exercise_id?: string | null
           routine_exercise_id?: string | null
           exercise_name?: string | null
+          hevy_muscle_group?: string | null
           display_order?: number
           created_at?: string
         }
@@ -821,6 +823,7 @@ export interface Database {
           exercise_id?: string | null
           routine_exercise_id?: string | null
           exercise_name?: string | null
+          hevy_muscle_group?: string | null
           display_order?: number
         }
       }

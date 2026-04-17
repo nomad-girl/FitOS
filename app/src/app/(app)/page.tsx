@@ -17,7 +17,8 @@ import { computeWeeklyScore } from '@/lib/weekly-score'
 import type { Insight } from '@/lib/supabase/types'
 import { syncHevyWorkouts } from '@/lib/hevy/sync'
 import { backfillTrainingData } from '@/lib/hevy/backfill'
-import { resolveMesocycleWeek, formatMesoChip } from '@/lib/mesocycle'
+import { resolveMesocycleWeek, formatMesoChip, MUSCLE_VOLUME_PROGRESSION } from '@/lib/mesocycle'
+import { getWeeklyVolumeByMuscle } from '@/lib/weekly-volume'
 
 const allDays = ['Dom', 'Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab']
 const weekDayMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
@@ -44,6 +45,7 @@ export default function DashboardPage() {
   const [liveScore, setLiveScore] = useState<import('@/lib/weekly-score').WeeklyScoreData | null>(null)
   const [scoreContext, setScoreContext] = useState<{ sessionsDone: number; sessionsPlanned: number; avgCal: number | null; avgProt: number | null; avgSteps: number | null; avgSleep: number | null; calTarget: number | null; protTarget: number | null; stepGoal: number | null; sleepGoal: number | null } | null>(null)
   const [prevCheckin, setPrevCheckin] = useState<import('@/lib/supabase/types').WeeklyCheckin | null>(null)
+  const [weeklyVolume, setWeeklyVolume] = useState<Record<string, number>>({})
   const [, setSeeding] = useState(false)
   const [, setSeedDone] = useState(false)
   const [showChart, setShowChart] = useState(false)
@@ -310,6 +312,25 @@ export default function DashboardPage() {
 
   // Current week info
   const weekStart = getWeekStartDate(new Date(), weekStartDay)
+
+  // Fetch weekly volume per muscle (only when we have a phase, i.e. mesocycle is live)
+  useEffect(() => {
+    if (!phase?.id) return
+    ;(async () => {
+      try {
+        const supabase = createClient()
+        const userId = await getUserId()
+        const weekEndDate = parseLocalDate(weekStart)
+        weekEndDate.setDate(weekEndDate.getDate() + 6)
+        const weekEnd = dateToLocal(weekEndDate)
+        const vol = await getWeeklyVolumeByMuscle(supabase, userId, weekStart, weekEnd)
+        setWeeklyVolume(vol)
+      } catch (err) {
+        console.warn('weekly volume fetch failed', err)
+      }
+    })()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase?.id, weekStart])
   let weekNumber = 1
   let totalWeeks = 6
   let phaseName = ''
@@ -568,6 +589,54 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+
+        {/* B. Esta semana — volumen target vs real por grupo */}
+        {phase && (() => {
+          const meso = resolveMesocycleWeek(weekNumber)
+          const weekKey = meso.type === 'accumulation' ? 'week1' : meso.type === 'progression' ? 'week2' : meso.type === 'peak' ? 'week3' : 'deload'
+          const typeColor = meso.type === 'accumulation' ? '#2563eb' : meso.type === 'progression' ? '#7c3aed' : meso.type === 'peak' ? '#dc2626' : '#d97706'
+          const typeBg = meso.type === 'accumulation' ? '#EEF4FB' : meso.type === 'progression' ? '#F1ECF7' : meso.type === 'peak' ? '#FBECEC' : '#FDF4DB'
+
+          return (
+            <div className="bg-card rounded-[var(--radius)] p-[22px_26px] mb-[18px] shadow-[var(--shadow)] fade-in" style={{ animationDelay: '.05s' }}>
+              <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
+                <div>
+                  <div className="text-[.77rem] font-bold text-gray-400 uppercase tracking-[.08em]">Esta semana</div>
+                  <div className="mt-1 flex items-center gap-2 flex-wrap">
+                    <span className="inline-flex items-center py-[3px] px-2.5 rounded-full text-[.72rem] font-bold uppercase tracking-wide" style={{ background: typeBg, color: typeColor }}>
+                      {meso.typeLabel}
+                    </span>
+                    <span className="text-[.82rem] text-gray-600 font-medium">{formatMesoChip(meso)}</span>
+                  </div>
+                </div>
+                <Link href="/sistema" className="text-[.78rem] font-semibold text-primary no-underline">
+                  Ver sistema →
+                </Link>
+              </div>
+
+              <div className="space-y-2.5">
+                {MUSCLE_VOLUME_PROGRESSION.map(row => {
+                  const target = row[weekKey]
+                  const done = weeklyVolume[row.muscle] ?? 0
+                  const pct = target > 0 ? Math.min(100, (done / target) * 100) : 0
+                  const color = pct >= 100 ? '#10B981' : pct >= 50 ? typeColor : '#cbd5e1'
+                  return (
+                    <div key={row.muscle} className="flex items-center gap-3 text-[.86rem]">
+                      <div className="w-[110px] text-gray-700 font-medium">{row.muscle}</div>
+                      <div className="flex-1 h-2.5 rounded-full bg-gray-100 overflow-hidden">
+                        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+                      </div>
+                      <div className="w-[72px] text-right text-gray-500 tabular-nums text-[.82rem]">
+                        <span className="font-semibold text-gray-800">{done % 1 === 0 ? done : done.toFixed(1)}</span>
+                        <span className="text-gray-400"> / {target}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* B. Next Session — removed */}
 

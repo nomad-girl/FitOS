@@ -184,24 +184,27 @@ export async function syncHevyWorkouts(
     allWorkouts.sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
 
     // ─── Pre-fetch muscle groups for every unique exercise template ──
-    // Hevy returns one primary_muscle_group per template; we cache it to
-    // store directly on executed_exercises (source of truth for weekly volume).
+    // Hevy returns one primary_muscle_group + secondary_muscle_groups[] per
+    // template; we cache both to store directly on executed_exercises.
     const uniqueTemplateIds = [...new Set(
       allWorkouts.flatMap(w => w.exercises.map(e => e.exercise_template_id))
     )]
-    const templateMuscleMap = new Map<string, string | null>()
+    const templateMuscleMap = new Map<string, { primary: string | null; secondary: string[] }>()
     for (const templateId of uniqueTemplateIds) {
       try {
         const params = new URLSearchParams({ endpoint: `exercise_templates/${templateId}` })
         const res = await fetch(`/api/hevy?${params.toString()}`)
         if (res.ok) {
           const tmpl = await res.json()
-          templateMuscleMap.set(templateId, tmpl.primary_muscle_group ?? null)
+          templateMuscleMap.set(templateId, {
+            primary: tmpl.primary_muscle_group ?? null,
+            secondary: Array.isArray(tmpl.secondary_muscle_groups) ? tmpl.secondary_muscle_groups : [],
+          })
         } else {
-          templateMuscleMap.set(templateId, null)
+          templateMuscleMap.set(templateId, { primary: null, secondary: [] })
         }
       } catch {
-        templateMuscleMap.set(templateId, null)
+        templateMuscleMap.set(templateId, { primary: null, secondary: [] })
       }
     }
 
@@ -314,13 +317,15 @@ export async function syncHevyWorkouts(
         for (const hevyExercise of workout.exercises) {
           const exerciseId = await getOrCreateMapping(supabase, userId, hevyExercise)
 
+          const muscleInfo = templateMuscleMap.get(hevyExercise.exercise_template_id)
           const { data: execExercise, error: exError } = await supabase
             .from('executed_exercises')
             .insert({
               executed_session_id: session.id,
               exercise_id: exerciseId,
               exercise_name: hevyExercise.title,
-              hevy_muscle_group: templateMuscleMap.get(hevyExercise.exercise_template_id) ?? null,
+              hevy_muscle_group: muscleInfo?.primary ?? null,
+              hevy_secondary_muscle_groups: muscleInfo?.secondary ?? [],
               display_order: hevyExercise.index,
             })
             .select('id')
@@ -363,10 +368,10 @@ export async function syncHevyWorkouts(
           : null
         const rpeMax = rpesWithValues.length > 0 ? Math.max(...rpesWithValues) : null
 
-        // Muscle groups for daily_log come from the pre-fetched cache
+        // Muscle groups for daily_log come from the pre-fetched cache (primary only)
         const uniqueMuscleGroups = [...new Set(
           workout.exercises
-            .map(ex => templateMuscleMap.get(ex.exercise_template_id))
+            .map(ex => templateMuscleMap.get(ex.exercise_template_id)?.primary)
             .filter((m): m is string => !!m)
         )]
         const stimulus = classifyStimulus(rpeAvg, rpeMax, prCount)

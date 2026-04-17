@@ -47,24 +47,32 @@ export async function GET(_request: NextRequest) {
     for (const ex of w.exercises) templateIds.add(ex.exercise_template_id)
   }
 
-  // 3. Fetch template → primary_muscle_group
-  const muscleByTemplate = new Map<string, string | null>()
+  // 3. Fetch template → { primary, secondary[] }
+  const muscleByTemplate = new Map<string, { primary: string | null; secondary: string[] }>()
   for (const id of templateIds) {
     try {
       const tmpl = await fetchHevy(`exercise_templates/${id}`)
-      muscleByTemplate.set(id, tmpl.primary_muscle_group ?? null)
+      muscleByTemplate.set(id, {
+        primary: tmpl.primary_muscle_group ?? null,
+        secondary: Array.isArray(tmpl.secondary_muscle_groups) ? tmpl.secondary_muscle_groups : [],
+      })
     } catch {
-      muscleByTemplate.set(id, null)
+      muscleByTemplate.set(id, { primary: null, secondary: [] })
     }
   }
 
-  // 4. Build (hevy_workout_id, exercise_name) → muscle_group
+  // 4. Build (hevy_workout_id, exercise_name) → { primary, secondary[] }
   type Key = string
-  const muscleByWorkoutExercise = new Map<Key, string>()
+  const muscleByWorkoutExercise = new Map<Key, { primary: string; secondary: string[] }>()
   for (const w of allWorkouts) {
     for (const ex of w.exercises) {
-      const muscle = muscleByTemplate.get(ex.exercise_template_id)
-      if (muscle) muscleByWorkoutExercise.set(`${w.id}::${ex.title}`, muscle)
+      const info = muscleByTemplate.get(ex.exercise_template_id)
+      if (info?.primary) {
+        muscleByWorkoutExercise.set(`${w.id}::${ex.title}`, {
+          primary: info.primary,
+          secondary: info.secondary,
+        })
+      }
     }
   }
 
@@ -83,11 +91,14 @@ export async function GET(_request: NextRequest) {
     for (const ex of (s.executed_exercises ?? []) as any[]) {
       if (ex.hevy_muscle_group) { skipped++; continue }
       const key = `${s.hevy_workout_id}::${ex.exercise_name}`
-      const muscle = muscleByWorkoutExercise.get(key)
-      if (!muscle) { misses.push(key); continue }
+      const info = muscleByWorkoutExercise.get(key)
+      if (!info) { misses.push(key); continue }
       const { error } = await supabase
         .from('executed_exercises')
-        .update({ hevy_muscle_group: muscle })
+        .update({
+          hevy_muscle_group: info.primary,
+          hevy_secondary_muscle_groups: info.secondary,
+        })
         .eq('id', ex.id)
       if (!error) updated++
     }

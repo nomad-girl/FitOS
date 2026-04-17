@@ -73,10 +73,10 @@ export async function getWeeklyVolumeByMuscle(
   if (!sessions || sessions.length === 0) return {}
   const sessionIds = sessions.map(s => s.id)
 
-  // Step 2: executed_exercises with their stored muscle group
+  // Step 2: executed_exercises + primary + secondary muscle groups
   const { data: exercises } = await supabase
     .from('executed_exercises')
-    .select('id, hevy_muscle_group')
+    .select('id, hevy_muscle_group, hevy_secondary_muscle_groups')
     .in('executed_session_id', sessionIds)
 
   if (!exercises || exercises.length === 0) return {}
@@ -94,15 +94,42 @@ export async function getWeeklyVolumeByMuscle(
     setCountByExercise[s.executed_exercise_id] = (setCountByExercise[s.executed_exercise_id] ?? 0) + 1
   }
 
-  // Step 4: distribute sets to the exercise's primary muscle
+  // Step 4: distribute sets. Primary gets full set; each secondary gets 0.5.
+  // This reflects that pulling (lats primary) still works biceps (~50% stimulus),
+  // pressing (chest primary) still works triceps, etc.
   const volumeByMuscle: Record<string, number> = {}
-  for (const ex of exercises as Array<{ id: string; hevy_muscle_group: string | null }>) {
+  const SECONDARY_FACTOR = 0.5
+  for (const ex of exercises as Array<{
+    id: string
+    hevy_muscle_group: string | null
+    hevy_secondary_muscle_groups: string[] | null
+  }>) {
     const setCount = setCountByExercise[ex.id] ?? 0
     if (setCount === 0) continue
-    const normalized = normalizeMuscleName(ex.hevy_muscle_group)
-    if (!normalized) continue
-    volumeByMuscle[normalized] = (volumeByMuscle[normalized] ?? 0) + setCount
+
+    // Primary: full count
+    const primary = normalizeMuscleName(ex.hevy_muscle_group)
+    if (primary) {
+      volumeByMuscle[primary] = (volumeByMuscle[primary] ?? 0) + setCount
+    }
+
+    // Secondaries: half count each, dedup to our normalized buckets so a single
+    // exercise can't double-count into the same bucket (e.g. lats + upper_back
+    // both map to Espalda — only count 0.5 once beyond the primary).
+    const seenSecondary = new Set<string>()
+    if (primary) seenSecondary.add(primary)
+    for (const raw of ex.hevy_secondary_muscle_groups ?? []) {
+      const norm = normalizeMuscleName(raw)
+      if (!norm || seenSecondary.has(norm)) continue
+      seenSecondary.add(norm)
+      volumeByMuscle[norm] = (volumeByMuscle[norm] ?? 0) + setCount * SECONDARY_FACTOR
+    }
   }
 
-  return volumeByMuscle
+  // Round to 1 decimal
+  const rounded: Record<string, number> = {}
+  for (const [k, v] of Object.entries(volumeByMuscle)) {
+    rounded[k] = Math.round(v * 10) / 10
+  }
+  return rounded
 }

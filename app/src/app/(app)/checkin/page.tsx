@@ -53,6 +53,7 @@ export default function CheckinPage() {
   const [lowHip, setLowHip] = useState('')
   const [restingHr, setRestingHr] = useState('')
   const [hrv, setHrv] = useState('')
+  const [bodyFatPct, setBodyFatPct] = useState('')
 
   // Data
   const [activePhase, setActivePhase] = useState<Phase | null>(null)
@@ -113,6 +114,7 @@ export default function CheckinPage() {
           if (cached.existingCheckin.low_hip_cm) setLowHip(String(cached.existingCheckin.low_hip_cm))
           if (cached.existingCheckin.resting_hr) setRestingHr(String(cached.existingCheckin.resting_hr))
           if (cached.existingCheckin.hrv) setHrv(String(cached.existingCheckin.hrv))
+          if (cached.existingCheckin.body_fat_pct != null) setBodyFatPct(String(cached.existingCheckin.body_fat_pct))
           if (cached.existingCheckin.performance_trend) setPerformanceTrend(cached.existingCheckin.performance_trend as PerformanceTrend)
           if (cached.existingCheckin.notes) setCheckinNotes(cached.existingCheckin.notes)
         }
@@ -132,6 +134,7 @@ export default function CheckinPage() {
       setLowHip('')
       setRestingHr('')
       setHrv('')
+      setBodyFatPct('')
       setPerformanceTrend('stable')
       setCheckinNotes('')
       setExistingCheckin(null)
@@ -173,6 +176,7 @@ export default function CheckinPage() {
           if (checkinData.low_hip_cm) setLowHip(String(checkinData.low_hip_cm))
           if (checkinData.resting_hr) setRestingHr(String(checkinData.resting_hr))
           if (checkinData.hrv) setHrv(String(checkinData.hrv))
+          if (checkinData.body_fat_pct != null) setBodyFatPct(String(checkinData.body_fat_pct))
           if (checkinData.performance_trend) setPerformanceTrend(checkinData.performance_trend as PerformanceTrend)
           if (checkinData.notes) setCheckinNotes(checkinData.notes)
         }
@@ -293,6 +297,7 @@ export default function CheckinPage() {
         low_hip_cm: lowHip ? parseFloat(lowHip) : null,
         resting_hr: restingHr ? parseInt(restingHr) : null,
         hrv: hrv ? parseInt(hrv) : null,
+        body_fat_pct: bodyFatPct ? parseFloat(bodyFatPct) : null,
         performance_trend: performanceTrend,
         avg_calories: averages.avg_calories ?? null,
         avg_protein: averages.avg_protein ?? null,
@@ -578,6 +583,19 @@ export default function CheckinPage() {
                   value={hrv}
                   onChange={(e) => setHrv(e.target.value)}
                   placeholder="45"
+                  className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] font-medium focus:border-primary focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="text-[.77rem] text-gray-400 block mb-1">% Grasa (opcional)</label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="70"
+                  value={bodyFatPct}
+                  onChange={(e) => setBodyFatPct(e.target.value)}
+                  placeholder="21"
                   className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] font-medium focus:border-primary focus:outline-none"
                 />
               </div>

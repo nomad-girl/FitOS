@@ -25,6 +25,7 @@ export interface Database {
           hevy_sync_status: string | null
           coach_context: string | null
           week_start_day: string | null
+          height_cm: number | null
           created_at: string
           updated_at: string
         }
@@ -46,6 +47,7 @@ export interface Database {
           hevy_sync_status?: string | null
           coach_context?: string | null
           week_start_day?: string | null
+          height_cm?: number | null
           created_at?: string
           updated_at?: string
         }
@@ -67,6 +69,7 @@ export interface Database {
           hevy_sync_status?: string | null
           coach_context?: string | null
           week_start_day?: string | null
+          height_cm?: number | null
           updated_at?: string
         }
       }
@@ -521,6 +524,7 @@ export interface Database {
           hip_cm: number | null
           thigh_cm: number | null
           low_hip_cm: number | null
+          body_fat_pct: number | null
           resting_hr: number | null
           hrv: number | null
           performance_trend: string | null
@@ -555,6 +559,7 @@ export interface Database {
           hip_cm?: number | null
           thigh_cm?: number | null
           low_hip_cm?: number | null
+          body_fat_pct?: number | null
           resting_hr?: number | null
           hrv?: number | null
           performance_trend?: string | null
@@ -587,6 +592,7 @@ export interface Database {
           hip_cm?: number | null
           thigh_cm?: number | null
           low_hip_cm?: number | null
+          body_fat_pct?: number | null
           resting_hr?: number | null
           hrv?: number | null
           performance_trend?: string | null

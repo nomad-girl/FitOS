@@ -24,6 +24,7 @@ export default function SettingsPage() {
   const [displayName, setDisplayName] = useState('')
   const [weekStartDay, setWeekStartDay] = useState('saturday')
   const [checkinDay, setCheckinDay] = useState('saturday')
+  const [heightCm, setHeightCm] = useState('')
 
   // Hevy state
   const [hevyConnected, setHevyConnected] = useState(false)
@@ -47,6 +48,7 @@ export default function SettingsPage() {
           setDisplayName(data.display_name ?? data.full_name ?? '')
           setWeekStartDay(data.week_start_day ?? 'saturday')
           setCheckinDay(data.checkin_day ?? 'saturday')
+          setHeightCm(data.height_cm != null ? String(data.height_cm) : '')
           setHevyLastSync(data.hevy_last_sync_at ?? null)
           // Quick check if Hevy API is configured server-side
           setHevyConnected(!!data.hevy_last_sync_at || !!data.hevy_api_key_encrypted)
@@ -75,6 +77,11 @@ export default function SettingsPage() {
       const supabase = createClient()
       const userId = await getUserId()
 
+      const parsedHeight = heightCm.trim() === '' ? null : Number(heightCm)
+      const heightValue = parsedHeight != null && Number.isFinite(parsedHeight) && parsedHeight > 0
+        ? parsedHeight
+        : null
+
       const { error } = await supabase
         .from('profiles')
         .upsert({
@@ -82,6 +89,7 @@ export default function SettingsPage() {
           display_name: displayName.trim() || null,
           week_start_day: weekStartDay,
           checkin_day: checkinDay,
+          height_cm: heightValue,
           updated_at: new Date().toISOString(),
         }, { onConflict: 'id' })
 
@@ -235,6 +243,25 @@ export default function SettingsPage() {
                   <option key={d.value} value={d.value}>{d.label}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Height */}
+            <div className="mb-5">
+              <label className="block text-[.84rem] font-semibold text-gray-500 mb-2">
+                Altura (cm)
+              </label>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.1"
+                min="100"
+                max="230"
+                value={heightCm}
+                onChange={(e) => setHeightCm(e.target.value)}
+                placeholder="161"
+                className={inputClass}
+              />
+              <p className="text-[.75rem] text-gray-400 mt-1.5">Necesario para calcular FFMI y masa magra</p>
             </div>
 
             {/* Save Button */}

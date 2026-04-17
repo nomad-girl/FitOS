@@ -46,6 +46,7 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
   const [editWeekStartDay, setEditWeekStartDay] = useState('monday')
   const [editCheckinDay, setEditCheckinDay] = useState('monday')
   const [editTrainingDays, setEditTrainingDays] = useState(3)
+  const [editHeightCm, setEditHeightCm] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [syncing, setSyncing] = useState(false)
@@ -58,6 +59,7 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
       setEditWeekStartDay(profile.week_start_day ?? 'monday')
       setEditCheckinDay(profile.checkin_day ?? 'monday')
       setEditTrainingDays(profile.training_days_per_week ?? 3)
+      setEditHeightCm(profile.height_cm != null ? String(profile.height_cm) : '')
     }
   }, [profile])
 
@@ -127,6 +129,11 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
       const supabase = createClient()
       const userId = await getUserId()
 
+      const parsedHeight = editHeightCm.trim() === '' ? null : Number(editHeightCm)
+      const heightValue = parsedHeight != null && Number.isFinite(parsedHeight) && parsedHeight > 0
+        ? parsedHeight
+        : null
+
       const { error } = await supabase
         .from('profiles')
         .update({
@@ -134,6 +141,7 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
           week_start_day: editWeekStartDay,
           checkin_day: editCheckinDay,
           training_days_per_week: editTrainingDays,
+          height_cm: heightValue,
         })
         .eq('id', userId)
 
@@ -323,6 +331,22 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
                     <option key={n} value={n}>{n}/sem</option>
                   ))}
                 </select>
+              </div>
+
+              {/* Height */}
+              <div className="flex justify-between items-center p-[14px_18px] bg-card">
+                <span className="font-medium text-[.92rem]">Altura (cm)</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.1"
+                  min="100"
+                  max="230"
+                  value={editHeightCm}
+                  onChange={(e) => setEditHeightCm(e.target.value)}
+                  placeholder="161"
+                  className={`${selectClass} w-[120px] text-right`}
+                />
               </div>
 
               {/* Hevy Integration */}

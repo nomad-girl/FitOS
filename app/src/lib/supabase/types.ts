@@ -203,6 +203,7 @@ export interface Database {
           exit_criteria: Json
           custom_exit_notes: string | null
           volume_targets: Json
+          periodization: Json | null
           notes: string | null
           outcome_notes: string | null
           display_order: number
@@ -234,6 +235,7 @@ export interface Database {
           exit_criteria?: Json
           custom_exit_notes?: string | null
           volume_targets?: Json
+          periodization?: Json | null
           notes?: string | null
           outcome_notes?: string | null
           display_order?: number
@@ -263,6 +265,7 @@ export interface Database {
           exit_criteria?: Json
           custom_exit_notes?: string | null
           volume_targets?: Json
+          periodization?: Json | null
           notes?: string | null
           outcome_notes?: string | null
           display_order?: number

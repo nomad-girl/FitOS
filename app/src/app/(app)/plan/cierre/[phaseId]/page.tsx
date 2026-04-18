@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client'
 import { getUserId } from '@/lib/supabase/auth-cache'
 import { invalidateCache } from '@/lib/cache'
 import { Badge } from '@/components/ui/badge'
-import { ProgressBar } from '@/components/ui/progress-bar'
 import { ffmiLabel, FFMI_SCALE } from '@/lib/body-comp'
 import { loadCloseoutData, type CloseoutData } from '@/lib/phase-closeout'
 import type { Phase } from '@/lib/supabase/types'
@@ -184,7 +183,7 @@ export default function CloseoutPage({ params }: { params: Promise<{ phaseId: st
           {formatDate(data.startDate)} → {formatDate(data.endDate)} · {data.weeksCompleted} de {data.weeksPlanned} semanas
         </p>
         {phase.objective && (
-          <p className="text-gray-600 text-[.9rem] mt-2 italic">"{phase.objective}"</p>
+          <p className="text-gray-600 text-[.9rem] mt-2 italic">&ldquo;{phase.objective}&rdquo;</p>
         )}
       </div>
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getUserId } from '@/lib/supabase/auth-cache'
 import { todayLocal } from '@/lib/date-utils'
+import { PERIODIZATION_PRESETS, type PhasePeriodization, type PhasePeriodizationWeek, type MesocycleWeekType } from '@/lib/mesocycle'
 import type { Phase } from '@/lib/supabase/types'
 
 const muscleGroups = [
@@ -300,6 +301,18 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
     isEdit ? loadBodyComp(existingPhase.exit_criteria) : (draft?.exitTargets ?? { weight_kg: '', body_fat_pct: '', waist_cm: '' })
   )
 
+  // Periodization (per-mesocycle weekly RPE/RIR/reps/etc).
+  const initialPeriodization: PhasePeriodization = (() => {
+    if (isEdit) {
+      const p = (existingPhase as unknown as { periodization?: PhasePeriodization | null }).periodization
+      if (p && Array.isArray(p.weeks) && p.weeks.length > 0) return p
+    }
+    if (draft?.periodization) return draft.periodization as PhasePeriodization
+    return PERIODIZATION_PRESETS['3+1'].periodization
+  })()
+  const [periodization, setPeriodization] = useState<PhasePeriodization>(initialPeriodization)
+  const [periodizationPreset, setPeriodizationPreset] = useState<string>(draft?.periodizationPreset ?? '3+1')
+
   const [criteriaTab, setCriteriaTab] = useState<'entry' | 'progress' | 'exit'>('entry')
   const [phaseStatus, setPhaseStatus] = useState<'active' | 'planned'>(draft?.phaseStatus ?? 'planned')
   const [saving, setSaving] = useState(false)
@@ -344,6 +357,11 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
       setExitStates(loadCriteriaStates(existingPhase.exit_criteria, exitCriteriaByGoal[gk] ?? []))
       setExitNote(existingPhase.custom_exit_notes ?? '')
       setExitTargets(loadBodyComp(existingPhase.exit_criteria))
+      const existingP = (existingPhase as unknown as { periodization?: PhasePeriodization | null }).periodization
+      if (existingP && Array.isArray(existingP.weeks) && existingP.weeks.length > 0) {
+        setPeriodization(existingP)
+        setPeriodizationPreset('custom')
+      }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, existingPhase?.id])
@@ -367,6 +385,7 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
         entryStates, entryBodyComp, entryNotes,
         progressTargetStates, progressWarningStates, progressNotes,
         exitStates, exitNote, exitTargets,
+        periodization, periodizationPreset,
         _savedAt: Date.now(),
       }))
     }, 500)
@@ -375,11 +394,12 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
     cal, prot, carbs, fat, protPct, carbsPct, fatPct, steps, sleep, phaseStatus,
     entryStates, entryBodyComp, entryNotes,
     progressTargetStates, progressWarningStates, progressNotes,
-    exitStates, exitNote, exitTargets])
+    exitStates, exitNote, exitTargets,
+    periodization, periodizationPreset])
 
   if (!open) return null
 
-  const stepLabels = ['Datos', 'Volumen', 'Nutricion', 'Criterios', 'Revisar']
+  const stepLabels = ['Datos', 'Volumen', 'Periodizacion', 'Nutricion', 'Criterios', 'Revisar']
 
   // When goal changes, re-initialize criteria with new goal defaults
   function handleGoalChange(newGoal: string) {
@@ -485,6 +505,7 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
         },
         custom_exit_notes: exitNote || null,
         volume_targets: volume,
+        periodization: periodization as unknown as import('@/lib/supabase/types').Json,
       }
 
       if (isEdit) {
@@ -536,7 +557,7 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
   }
 
   function next() {
-    if (step < 5) setStep(step + 1)
+    if (step < 6) setStep(step + 1)
     else handleSave()
   }
 
@@ -758,8 +779,19 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
             </div>
           )}
 
-          {/* STEP 3: Nutrition */}
+          {/* STEP 3: Periodization */}
           {step === 3 && (
+            <PeriodizationStep
+              periodization={periodization}
+              setPeriodization={setPeriodization}
+              preset={periodizationPreset}
+              setPreset={setPeriodizationPreset}
+              durationWeeks={parseInt(duration) || 0}
+            />
+          )}
+
+          {/* STEP 4: Nutrition */}
+          {step === 4 && (
             <div className="fade-in">
               <h3 className="text-[.95rem] font-bold mb-1">Nutricion y Actividad</h3>
               <p className="text-[.77rem] text-gray-400 mb-4">Defini tus objetivos para esta fase. Al poner calorias, los macros se calculan automaticamente.</p>
@@ -834,8 +866,8 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
             </div>
           )}
 
-          {/* STEP 4: Criteria (Entry / Progress / Exit) */}
-          {step === 4 && (
+          {/* STEP 5: Criteria (Entry / Progress / Exit) */}
+          {step === 5 && (
             <div className="fade-in">
               <h3 className="text-[.95rem] font-bold mb-1">Criterios de la Fase</h3>
               <p className="text-[.77rem] text-gray-400 mb-3">La IA usa estos criterios para evaluar tu progreso y darte sugerencias inteligentes.</p>
@@ -1008,8 +1040,8 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
             </div>
           )}
 
-          {/* STEP 5: Review */}
-          {step === 5 && (
+          {/* STEP 6: Review */}
+          {step === 6 && (
             <div className="fade-in">
               <h3 className="text-[.95rem] font-bold mb-4">Revisar y {mode === 'edit' ? 'Guardar' : 'Crear'}</h3>
 
@@ -1030,6 +1062,20 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
                       <span className="text-gray-500 text-[.85rem]">{item.label}</span>
                       <span className="font-semibold text-[.85rem]">{item.value}</span>
                     </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <h4 className="text-[.8rem] text-gray-500 uppercase tracking-wider mb-2">Periodización</h4>
+                <div className="text-[.82rem] text-gray-600 mb-1">
+                  Bloque de {periodization.blockLength || periodization.weeks.length} semanas ({periodizationPreset === 'custom' ? 'personalizada' : (PERIODIZATION_PRESETS[periodizationPreset]?.label ?? 'custom')})
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {periodization.weeks.map((w) => (
+                    <span key={w.week} className="text-[.72rem] py-0.5 px-2 rounded-full font-semibold" style={{ background: WEEK_TYPE_COLORS[w.type].bg, color: WEEK_TYPE_COLORS[w.type].accent }}>
+                      S{w.week} · RPE {w.rpe} · {w.repRange[0]}-{w.repRange[1]} reps
+                    </span>
                   ))}
                 </div>
               </div>
@@ -1113,9 +1159,205 @@ export function PhaseWizard({ open, onClose, mode = 'create', existingPhase, mac
             disabled={saving}
             className="flex-1 inline-flex items-center justify-center py-2.5 px-[22px] rounded-[var(--radius-sm)] font-semibold text-[.9rem] bg-gradient-to-br from-primary to-accent text-white shadow-[0_2px_8px_rgba(14,165,233,.25)] cursor-pointer border-none transition-all duration-200 hover:shadow-[0_4px_16px_rgba(14,165,233,.35)] hover:-translate-y-px disabled:opacity-60"
           >
-            {step === 5 ? (saving ? 'Guardando...' : mode === 'edit' ? 'Guardar Cambios' : 'Crear Fase') : `Siguiente: ${stepLabels[step]} \u2192`}
+            {step === 6 ? (saving ? 'Guardando...' : mode === 'edit' ? 'Guardar Cambios' : 'Crear Fase') : `Siguiente: ${stepLabels[step]} \u2192`}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Periodization step ────────────────────────────────────────────
+
+const WEEK_TYPE_COLORS: Record<MesocycleWeekType, { bg: string; text: string; accent: string }> = {
+  accumulation: { bg: '#EEF4FB', text: '#1e4b7a', accent: '#2563eb' },
+  progression:  { bg: '#F1ECF7', text: '#4c2d7a', accent: '#7c3aed' },
+  peak:         { bg: '#FBECEC', text: '#7a1f1f', accent: '#dc2626' },
+  deload:       { bg: '#FDF4DB', text: '#6b4e0e', accent: '#d97706' },
+}
+
+const WEEK_TYPE_OPTIONS: { value: MesocycleWeekType; label: string }[] = [
+  { value: 'accumulation', label: 'Acumulación' },
+  { value: 'progression', label: 'Progresión' },
+  { value: 'peak', label: 'Peak' },
+  { value: 'deload', label: 'Descarga' },
+]
+
+interface PeriodizationStepProps {
+  periodization: PhasePeriodization
+  setPeriodization: (p: PhasePeriodization) => void
+  preset: string
+  setPreset: (p: string) => void
+  durationWeeks: number
+}
+
+function PeriodizationStep({ periodization, setPeriodization, preset, setPreset, durationWeeks }: PeriodizationStepProps) {
+  function applyPreset(key: string) {
+    const found = PERIODIZATION_PRESETS[key]
+    if (!found) return
+    setPeriodization(JSON.parse(JSON.stringify(found.periodization)))
+    setPreset(key)
+  }
+
+  function updateWeek(idx: number, patch: Partial<PhasePeriodizationWeek>) {
+    const weeks = periodization.weeks.map((w, i) => (i === idx ? { ...w, ...patch } : w))
+    setPeriodization({ ...periodization, weeks })
+    setPreset('custom')
+  }
+
+  function addWeek() {
+    const last = periodization.weeks[periodization.weeks.length - 1]
+    const newWeek: PhasePeriodizationWeek = {
+      week: periodization.weeks.length + 1,
+      type: 'accumulation',
+      rpe: last?.rpe ?? 7,
+      rir: last?.rir ?? 3,
+      repRange: last?.repRange ?? [10, 15],
+      pct1rm: last?.pct1rm ?? [60, 67],
+      volumeMultiplier: last?.volumeMultiplier ?? 0.7,
+    }
+    const weeks = [...periodization.weeks, newWeek]
+    setPeriodization({ blockLength: weeks.length, weeks: weeks.map((w, i) => ({ ...w, week: i + 1 })) })
+    setPreset('custom')
+  }
+
+  function removeWeek(idx: number) {
+    if (periodization.weeks.length <= 1) return
+    const weeks = periodization.weeks.filter((_, i) => i !== idx).map((w, i) => ({ ...w, week: i + 1 }))
+    setPeriodization({ blockLength: weeks.length, weeks })
+    setPreset('custom')
+  }
+
+  const blockLen = periodization.blockLength || periodization.weeks.length
+  const blocksFit = durationWeeks > 0 ? Math.ceil(durationWeeks / blockLen) : 0
+
+  return (
+    <div className="fade-in">
+      <h3 className="text-[.95rem] font-bold mb-1">Periodización</h3>
+      <p className="text-[.77rem] text-gray-400 mb-3">
+        Cómo varía cada semana del mesociclo (RPE, RIR, reps, %1RM). El bloque se repite hasta cubrir las {durationWeeks || '—'} semanas.
+      </p>
+
+      {/* Preset selector */}
+      <div className="mb-4">
+        <label className="text-[.77rem] text-gray-400 block mb-1.5">Plantilla base</label>
+        <div className="flex gap-1.5 flex-wrap">
+          {Object.entries(PERIODIZATION_PRESETS).map(([key, p]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => applyPreset(key)}
+              className={`py-1.5 px-3 rounded-full text-[.78rem] font-semibold border-[1.5px] cursor-pointer transition-all duration-200 ${
+                preset === key ? 'bg-primary-light border-primary text-primary-dark' : 'border-gray-200 text-gray-600 hover:border-primary'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+          {preset === 'custom' && (
+            <span className="py-1.5 px-3 rounded-full text-[.78rem] font-semibold bg-warning-light text-warning">
+              Personalizada
+            </span>
+          )}
+        </div>
+        {durationWeeks > 0 && (
+          <p className="text-[.72rem] text-gray-400 mt-1.5">
+            Bloque de {blockLen} semanas · se repite {blocksFit} {blocksFit === 1 ? 'vez' : 'veces'} para cubrir las {durationWeeks} semanas de la fase.
+          </p>
+        )}
+      </div>
+
+      {/* Weeks editor */}
+      <div className="flex flex-col gap-2 max-h-[380px] overflow-y-auto pr-1">
+        {periodization.weeks.map((wk, idx) => {
+          const c = WEEK_TYPE_COLORS[wk.type]
+          return (
+            <div key={idx} className="border border-gray-200 rounded-[var(--radius-sm)] p-3" style={{ borderLeftColor: c.accent, borderLeftWidth: 4 }}>
+              <div className="flex items-center justify-between mb-2 gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center py-0.5 px-2 rounded-full text-[.7rem] font-bold uppercase tracking-wide" style={{ background: c.bg, color: c.accent }}>
+                    Sem {wk.week}
+                  </span>
+                  <select
+                    value={wk.type}
+                    onChange={(e) => updateWeek(idx, { type: e.target.value as MesocycleWeekType })}
+                    className="text-[.82rem] font-semibold py-1 px-2 border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none bg-card"
+                  >
+                    {WEEK_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </div>
+                {periodization.weeks.length > 1 && (
+                  <button type="button" onClick={() => removeWeek(idx)} className="text-gray-300 hover:text-danger text-[1.1rem] cursor-pointer bg-transparent border-none" title="Eliminar semana">×</button>
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-2 max-sm:grid-cols-2">
+                <NumField label="RPE" value={wk.rpe} step={0.5} min={5} max={10} onChange={(v) => updateWeek(idx, { rpe: v })} />
+                <NumField label="RIR" value={wk.rir} step={0.5} min={0} max={6} onChange={(v) => updateWeek(idx, { rir: v })} />
+                <NumField label="Vol ×" value={wk.volumeMultiplier} step={0.1} min={0.2} max={1.5} onChange={(v) => updateWeek(idx, { volumeMultiplier: v })} />
+                <RangeField label="Reps" value={wk.repRange} onChange={(v) => updateWeek(idx, { repRange: v })} min={1} max={30} />
+                <RangeField label="% 1RM" value={wk.pct1rm} onChange={(v) => updateWeek(idx, { pct1rm: v })} min={30} max={100} suffix="%" />
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <button
+        type="button"
+        onClick={addWeek}
+        className="mt-3 w-full py-2 rounded-[var(--radius-sm)] border-2 border-dashed border-gray-200 text-gray-500 text-[.84rem] font-semibold cursor-pointer hover:border-primary hover:text-primary transition-all duration-200 bg-transparent"
+      >
+        + Agregar semana
+      </button>
+
+      <div className="mt-3 p-[10px_14px] bg-primary-light rounded-[var(--radius-xs)]">
+        <span className="text-[.78rem] text-primary-dark">
+          {'\uD83D\uDCA1'} La <strong>Sistema</strong> global queda como referencia. Acá podés ondular la fase a tu manera (ej: peak adelantado, sin deload, doble acumulación).
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function NumField({ label, value, step, min, max, onChange }: { label: string; value: number; step: number; min: number; max: number; onChange: (v: number) => void }) {
+  return (
+    <div>
+      <label className="text-[.7rem] text-gray-400 block mb-0.5">{label}</label>
+      <input
+        type="number"
+        value={value}
+        step={step}
+        min={min}
+        max={max}
+        onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+        className="w-full py-1.5 px-2 text-center text-[.84rem] border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none tabular-nums"
+      />
+    </div>
+  )
+}
+
+function RangeField({ label, value, onChange, min, max, suffix }: { label: string; value: [number, number]; onChange: (v: [number, number]) => void; min: number; max: number; suffix?: string }) {
+  return (
+    <div>
+      <label className="text-[.7rem] text-gray-400 block mb-0.5">{label}{suffix ? ` (${suffix})` : ''}</label>
+      <div className="flex items-center gap-1">
+        <input
+          type="number"
+          value={value[0]}
+          min={min}
+          max={max}
+          onChange={(e) => onChange([parseInt(e.target.value) || 0, value[1]])}
+          className="w-full py-1.5 px-2 text-center text-[.84rem] border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none tabular-nums"
+        />
+        <span className="text-gray-300 text-[.78rem]">–</span>
+        <input
+          type="number"
+          value={value[1]}
+          min={min}
+          max={max}
+          onChange={(e) => onChange([value[0], parseInt(e.target.value) || 0])}
+          className="w-full py-1.5 px-2 text-center text-[.84rem] border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none tabular-nums"
+        />
       </div>
     </div>
   )

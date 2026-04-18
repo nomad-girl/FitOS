@@ -73,12 +73,130 @@ const WEEK_TEMPLATES: Record<1 | 2 | 3 | 4, MesocycleWeekPlan> = {
   },
 }
 
+// Per-phase periodization stored on phases.periodization JSONB.
+// When set, overrides the default 3+1 template above. Each entry corresponds
+// to a single week inside the block; the block then repeats.
+export interface PhasePeriodizationWeek {
+  week: number                  // 1..blockLength (informational)
+  type: MesocycleWeekType
+  rpe: number
+  rir: number
+  repRange: [number, number]
+  pct1rm: [number, number]
+  volumeMultiplier: number
+  sensation?: string
+  note?: string
+}
+export interface PhasePeriodization {
+  blockLength: number
+  weeks: PhasePeriodizationWeek[]
+}
+
 // Resolve the mesocycle plan for a given phase week (1-based within the phase).
-export function resolveMesocycleWeek(phaseWeek: number, blockLength = 4): MesocycleWeekPlan {
+// If `periodization` is provided (from phase.periodization), it overrides the
+// global template. Otherwise falls back to the 3+1 default in WEEK_TEMPLATES.
+export function resolveMesocycleWeek(
+  phaseWeek: number,
+  periodizationOrBlockLength?: PhasePeriodization | number | null,
+  legacyBlockLength = 4,
+): MesocycleWeekPlan {
   const w = Math.max(1, Math.floor(phaseWeek))
+
+  // Custom periodization path
+  if (periodizationOrBlockLength && typeof periodizationOrBlockLength === 'object' && Array.isArray(periodizationOrBlockLength.weeks) && periodizationOrBlockLength.weeks.length > 0) {
+    const p = periodizationOrBlockLength
+    const blockLength = Math.max(1, p.blockLength || p.weeks.length)
+    const idx = (w - 1) % blockLength
+    const blockIndex = Math.floor((w - 1) / blockLength)
+    const wk = p.weeks[idx] ?? p.weeks[p.weeks.length - 1]
+    return {
+      mesoWeek: (idx + 1) as 1 | 2 | 3 | 4,
+      mesoBlockIndex: blockIndex,
+      type: wk.type,
+      typeLabel: typeLabel(wk.type),
+      rpeTarget: wk.rpe,
+      rir: wk.rir,
+      repRange: wk.repRange,
+      volumeMultiplier: wk.volumeMultiplier,
+      percent1RM: wk.pct1rm,
+      sensation: wk.sensation ?? defaultSensation(wk.type),
+    }
+  }
+
+  // Default global template (current behavior)
+  const blockLength = typeof periodizationOrBlockLength === 'number' ? periodizationOrBlockLength : legacyBlockLength
   const mesoWeek = ((w - 1) % blockLength) + 1 as 1 | 2 | 3 | 4
   const blockIndex = Math.floor((w - 1) / blockLength)
   return { ...WEEK_TEMPLATES[mesoWeek], mesoBlockIndex: blockIndex }
+}
+
+function typeLabel(t: MesocycleWeekType): string {
+  return t === 'accumulation' ? 'Acumulación'
+    : t === 'progression' ? 'Progresión'
+    : t === 'peak' ? 'Peak'
+    : 'Descarga'
+}
+
+function defaultSensation(t: MesocycleWeekType): string {
+  return t === 'accumulation' ? 'Podría más'
+    : t === 'progression' ? 'Exigente'
+    : t === 'peak' ? 'Al límite'
+    : 'No sirve (es a propósito)'
+}
+
+// Default periodization presets for the wizard (matches Sistema reference + extras).
+export const PERIODIZATION_PRESETS: Record<string, { label: string; periodization: PhasePeriodization }> = {
+  '3+1': {
+    label: '3+1 (4 semanas)',
+    periodization: {
+      blockLength: 4,
+      weeks: [
+        { week: 1, type: 'accumulation', rpe: 7, rir: 3, repRange: [10, 15], pct1rm: [60, 67], volumeMultiplier: 0.6, sensation: 'Podría más' },
+        { week: 2, type: 'progression',  rpe: 8, rir: 2, repRange: [8, 12],  pct1rm: [70, 80], volumeMultiplier: 0.8, sensation: 'Exigente' },
+        { week: 3, type: 'peak',         rpe: 9.5, rir: 0, repRange: [6, 10], pct1rm: [80, 90], volumeMultiplier: 1.0, sensation: 'Al límite' },
+        { week: 4, type: 'deload',       rpe: 6, rir: 4, repRange: [10, 15], pct1rm: [55, 65], volumeMultiplier: 0.4, sensation: 'No sirve (es a propósito)' },
+      ],
+    },
+  },
+  '4+1': {
+    label: '4+1 (5 semanas)',
+    periodization: {
+      blockLength: 5,
+      weeks: [
+        { week: 1, type: 'accumulation', rpe: 7, rir: 3, repRange: [10, 15], pct1rm: [60, 67], volumeMultiplier: 0.6 },
+        { week: 2, type: 'accumulation', rpe: 7.5, rir: 2.5, repRange: [9, 13], pct1rm: [65, 72], volumeMultiplier: 0.7 },
+        { week: 3, type: 'progression',  rpe: 8, rir: 2, repRange: [8, 12],  pct1rm: [70, 80], volumeMultiplier: 0.85 },
+        { week: 4, type: 'peak',         rpe: 9.5, rir: 0, repRange: [6, 10], pct1rm: [80, 90], volumeMultiplier: 1.0 },
+        { week: 5, type: 'deload',       rpe: 6, rir: 4, repRange: [10, 15], pct1rm: [55, 65], volumeMultiplier: 0.4 },
+      ],
+    },
+  },
+  '5+1': {
+    label: '5+1 (6 semanas)',
+    periodization: {
+      blockLength: 6,
+      weeks: [
+        { week: 1, type: 'accumulation', rpe: 7, rir: 3, repRange: [10, 15], pct1rm: [60, 67], volumeMultiplier: 0.6 },
+        { week: 2, type: 'accumulation', rpe: 7.5, rir: 2.5, repRange: [9, 13], pct1rm: [65, 72], volumeMultiplier: 0.7 },
+        { week: 3, type: 'progression',  rpe: 8, rir: 2, repRange: [8, 12], pct1rm: [70, 78], volumeMultiplier: 0.8 },
+        { week: 4, type: 'progression',  rpe: 8.5, rir: 1.5, repRange: [7, 11], pct1rm: [75, 83], volumeMultiplier: 0.9 },
+        { week: 5, type: 'peak',         rpe: 9.5, rir: 0, repRange: [5, 8], pct1rm: [82, 92], volumeMultiplier: 1.0 },
+        { week: 6, type: 'deload',       rpe: 6, rir: 4, repRange: [10, 15], pct1rm: [55, 65], volumeMultiplier: 0.4 },
+      ],
+    },
+  },
+  linear: {
+    label: 'Lineal (sin deload)',
+    periodization: {
+      blockLength: 4,
+      weeks: [
+        { week: 1, type: 'accumulation', rpe: 7, rir: 3, repRange: [10, 15], pct1rm: [60, 67], volumeMultiplier: 0.7 },
+        { week: 2, type: 'progression',  rpe: 8, rir: 2, repRange: [8, 12], pct1rm: [70, 78], volumeMultiplier: 0.85 },
+        { week: 3, type: 'progression',  rpe: 8.5, rir: 1.5, repRange: [6, 10], pct1rm: [75, 85], volumeMultiplier: 0.95 },
+        { week: 4, type: 'peak',         rpe: 9, rir: 1, repRange: [5, 8], pct1rm: [82, 90], volumeMultiplier: 1.0 },
+      ],
+    },
+  },
 }
 
 // Target sets per muscle group for this week, derived from volume_targets (MEV/MAV/MRV shape).

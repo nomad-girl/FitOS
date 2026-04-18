@@ -6,7 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { calcBodyComp, type BodyCompOutput } from '@/lib/body-comp'
 import { getWeeklyVolumeByMuscle } from '@/lib/weekly-volume'
 import { todayLocal } from '@/lib/date-utils'
-import { targetSetsForWeek, resolveMesocycleWeek } from '@/lib/mesocycle'
+import { targetSetsForWeek, resolveMesocycleWeek, type PhasePeriodization } from '@/lib/mesocycle'
 import type { Phase } from '@/lib/supabase/types'
 
 export interface BodyCompSnapshot {
@@ -176,9 +176,10 @@ function plannedVolumeRows(
   actual: Record<string, number>,
 ): VolumeRow[] {
   const vt = phase.volume_targets as Record<string, unknown> | null
+  const periodization = (phase as unknown as { periodization?: PhasePeriodization | null }).periodization ?? null
   const plannedSum: Record<string, number> = {}
   for (let w = 1; w <= weeksCompleted; w++) {
-    const plan = resolveMesocycleWeek(w)
+    const plan = resolveMesocycleWeek(w, periodization)
     const target = targetSetsForWeek(vt, plan)
     for (const [muscle, sets] of Object.entries(target)) {
       plannedSum[muscle] = (plannedSum[muscle] ?? 0) + sets

@@ -553,7 +553,7 @@ export default function DashboardPage() {
               <div className="font-extrabold text-[1.15rem]">Semana {weekNumber} de {totalWeeks}</div>
               <div className="opacity-85 text-[.87rem]">{phaseName}</div>
               {phase && (() => {
-                const meso = resolveMesocycleWeek(weekNumber)
+                const meso = resolveMesocycleWeek(weekNumber, (phase.periodization as import('@/lib/mesocycle').PhasePeriodization | null) ?? null)
                 return (
                   <div className="mt-2 flex items-center gap-2 flex-wrap">
                     <span className="inline-flex items-center py-[3px] px-2.5 rounded-full text-[.72rem] font-bold bg-white/25 uppercase tracking-wide">

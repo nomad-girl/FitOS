@@ -35,6 +35,10 @@ export default function MesoPreviewPage() {
         <p className="text-gray-500 text-[.95rem] mt-1.5">
           Full body con sesgo anterior/posterior · Periodización ondulante semanal · Progresión de volumen + RPE
         </p>
+        <div className="mt-3 inline-flex items-center gap-2 py-1.5 px-3 rounded-full bg-primary-light text-primary-dark text-[.78rem]">
+          <span>{'\uD83D\uDCA1'}</span>
+          <span>Plantilla por defecto al crear una fase. Cada mesociclo puede tener su propia periodización en el wizard.</span>
+        </div>
       </div>
 
       {/* Mesociclo 3+1 overview — 4 cards */}

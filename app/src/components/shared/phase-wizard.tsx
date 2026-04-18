@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getUserId } from '@/lib/supabase/auth-cache'
 import { todayLocal } from '@/lib/date-utils'
-import { PERIODIZATION_PRESETS, type PhasePeriodization, type PhasePeriodizationWeek, type MesocycleWeekType } from '@/lib/mesocycle'
+import { PERIODIZATION_PRESETS, defaultsForWeekType, type PhasePeriodization, type PhasePeriodizationWeek, type MesocycleWeekType } from '@/lib/mesocycle'
 import type { Phase } from '@/lib/supabase/types'
 
 const muscleGroups = [
@@ -1205,16 +1205,21 @@ function PeriodizationStep({ periodization, setPeriodization, preset, setPreset,
     setPreset('custom')
   }
 
+  // Changing the phase type in the dropdown auto-fills RPE/RIR/reps/%1RM/vol×
+  // from the canonical Sistema defaults for that type. Week index is preserved.
+  function setWeekType(idx: number, type: MesocycleWeekType) {
+    const defaults = defaultsForWeekType(type)
+    const weeks = periodization.weeks.map((w, i) => (i === idx ? { ...w, ...defaults, week: w.week } : w))
+    setPeriodization({ ...periodization, weeks })
+    setPreset('custom')
+  }
+
   function addWeek() {
-    const last = periodization.weeks[periodization.weeks.length - 1]
+    // New weeks start as Acumulación with canonical defaults (user can change
+    // the type in the dropdown and the rest re-populates automatically).
     const newWeek: PhasePeriodizationWeek = {
       week: periodization.weeks.length + 1,
-      type: 'accumulation',
-      rpe: last?.rpe ?? 7,
-      rir: last?.rir ?? 3,
-      repRange: last?.repRange ?? [10, 15],
-      pct1rm: last?.pct1rm ?? [60, 67],
-      volumeMultiplier: last?.volumeMultiplier ?? 0.7,
+      ...defaultsForWeekType('accumulation'),
     }
     const weeks = [...periodization.weeks, newWeek]
     setPeriodization({ blockLength: weeks.length, weeks: weeks.map((w, i) => ({ ...w, week: i + 1 })) })
@@ -1280,7 +1285,7 @@ function PeriodizationStep({ periodization, setPeriodization, preset, setPreset,
                   </span>
                   <select
                     value={wk.type}
-                    onChange={(e) => updateWeek(idx, { type: e.target.value as MesocycleWeekType })}
+                    onChange={(e) => setWeekType(idx, e.target.value as MesocycleWeekType)}
                     className="text-[.82rem] font-semibold py-1 px-2 border-[1.5px] border-gray-200 rounded-[var(--radius-xs)] focus:border-primary focus:outline-none bg-card"
                   >
                     {WEEK_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}

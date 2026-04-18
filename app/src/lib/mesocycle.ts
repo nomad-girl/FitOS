@@ -144,6 +144,21 @@ function defaultSensation(t: MesocycleWeekType): string {
     : 'No sirve (es a propósito)'
 }
 
+// Canonical per-type defaults for the wizard. Mirrors WEEK_TEMPLATES but returns
+// the PhasePeriodizationWeek shape (without week index, which the caller sets).
+export function defaultsForWeekType(type: MesocycleWeekType): Omit<PhasePeriodizationWeek, 'week'> {
+  switch (type) {
+    case 'accumulation':
+      return { type, rpe: 7,   rir: 3, repRange: [10, 15], pct1rm: [60, 67], volumeMultiplier: 0.6, sensation: 'Podría más' }
+    case 'progression':
+      return { type, rpe: 8,   rir: 2, repRange: [8, 12],  pct1rm: [70, 80], volumeMultiplier: 0.8, sensation: 'Exigente' }
+    case 'peak':
+      return { type, rpe: 9.5, rir: 0, repRange: [6, 10],  pct1rm: [80, 90], volumeMultiplier: 1.0, sensation: 'Al límite' }
+    case 'deload':
+      return { type, rpe: 6,   rir: 4, repRange: [10, 15], pct1rm: [55, 65], volumeMultiplier: 0.4, sensation: 'No sirve (es a propósito)' }
+  }
+}
+
 // Default periodization presets for the wizard (matches Sistema reference + extras).
 export const PERIODIZATION_PRESETS: Record<string, { label: string; periodization: PhasePeriodization }> = {
   '3+1': {

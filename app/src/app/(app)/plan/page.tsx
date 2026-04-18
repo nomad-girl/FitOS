@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { ProgressBar } from '@/components/ui/progress-bar'
 import { PhaseWizard } from '@/components/shared/phase-wizard'
@@ -50,6 +51,7 @@ const goalLabel: Record<string, string> = {
 const borderColors = ['border-l-primary', 'border-l-accent', 'border-l-success', 'border-l-warning']
 
 export default function PlanPage() {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState<PlanTab>('macro')
   const [selectedRoutine, setSelectedRoutine] = useState<string | null>(null)
   const [selectedPhaseId, setSelectedPhaseId] = useState<string | null>(null)
@@ -242,17 +244,8 @@ export default function PlanPage() {
     fetchData()
   }
 
-  async function finishPhase(phase: Phase) {
-    if (!confirm(`Finalizar fase "${phase.name}"? Se marcara como completada.`)) return
-    const supabase = createClient()
-    const { error } = await supabase
-      .from('phases')
-      .update({ status: 'completed', updated_at: new Date().toISOString() })
-      .eq('id', phase.id)
-
-    if (error) { console.error('Error finishing phase:', error); return }
-    invalidateCache('plan:')
-    fetchData()
+  function finishPhase(phase: Phase) {
+    router.push(`/plan/cierre/${phase.id}`)
   }
 
   async function addExerciseToRoutine(tmpl: HevyTemplate) {
@@ -648,9 +641,19 @@ export default function PlanPage() {
                           <button
                             onClick={(e) => { e.stopPropagation(); finishPhase(phase) }}
                             className="py-1 px-2.5 rounded-[var(--radius-xs)] text-[.75rem] font-semibold border-[1.5px] border-warning text-warning bg-transparent cursor-pointer hover:bg-warning-light transition-all duration-200"
-                            title="Finalizar esta fase"
+                            title="Cerrar esta fase con resumen"
                           >
-                            Finalizar
+                            Cerrar
+                          </button>
+                        )}
+                        {/* Reopen closeout for completed phases */}
+                        {phase.status === 'completed' && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); router.push(`/plan/cierre/${phase.id}`) }}
+                            className="py-1 px-2.5 rounded-[var(--radius-xs)] text-[.75rem] font-semibold bg-success-light text-success border-none cursor-pointer hover:opacity-80 transition-all duration-200"
+                            title="Ver resumen de cierre"
+                          >
+                            Ver cierre
                           </button>
                         )}
                         <button

@@ -19,7 +19,7 @@ import { syncHevyWorkouts } from '@/lib/hevy/sync'
 import { backfillTrainingData } from '@/lib/hevy/backfill'
 import { resolveMesocycleWeek, formatMesoChip, effectiveMesoWeek } from '@/lib/mesocycle'
 import type { PhasePeriodization } from '@/lib/mesocycle'
-import { setMesoAnchor } from '@/lib/actions/phases'
+import { setMesoAnchor, completePhase } from '@/lib/actions/phases'
 import { getWeeklyVolumeByMuscle } from '@/lib/weekly-volume'
 import { WeeklyVolumeBlock } from '@/components/shared/weekly-volume-block'
 
@@ -49,6 +49,7 @@ export default function DashboardPage() {
   const [scoreContext, setScoreContext] = useState<{ sessionsDone: number; sessionsPlanned: number; avgCal: number | null; avgProt: number | null; avgSteps: number | null; avgSleep: number | null; calTarget: number | null; protTarget: number | null; stepGoal: number | null; sleepGoal: number | null } | null>(null)
   const [prevCheckin, setPrevCheckin] = useState<import('@/lib/supabase/types').WeeklyCheckin | null>(null)
   const [weeklyVolume, setWeeklyVolume] = useState<Record<string, number>>({})
+  const [finishingPhase, setFinishingPhase] = useState(false)
   const [, setSeeding] = useState(false)
   const [, setSeedDone] = useState(false)
   const [showChart, setShowChart] = useState(false)
@@ -565,12 +566,36 @@ export default function DashboardPage() {
                   &quot;{phaseName}&quot; tenía {totalWeeks} semanas y ya pasaron {rawWeekNumber}. Los targets están desactualizados.
                 </div>
               </div>
-              <Link
-                href={`/plan/cierre/${phase.id}`}
-                className="inline-flex items-center py-2 px-4 rounded-lg text-[.82rem] font-semibold bg-amber-500 text-white hover:bg-amber-600 transition-colors no-underline"
-              >
-                Finalizar fase
-              </Link>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Link
+                  href={`/plan/cierre/${phase.id}`}
+                  className="inline-flex items-center py-2 px-3 rounded-lg text-[.82rem] font-semibold text-amber-700 border border-amber-300 hover:bg-amber-100 transition-colors no-underline"
+                >
+                  Ver cierre
+                </Link>
+                <button
+                  type="button"
+                  disabled={finishingPhase}
+                  onClick={async () => {
+                    if (!confirm(`¿Finalizar la fase "${phaseName}"? Quedará marcada como completada.`)) return
+                    setFinishingPhase(true)
+                    try {
+                      await completePhase(phase.id)
+                      invalidateCache('dashboard:')
+                      invalidateCache('plan:')
+                      invalidateCache('checkin:')
+                      await refetchPhase()
+                    } catch (err) {
+                      alert('Error al finalizar: ' + (err instanceof Error ? err.message : String(err)))
+                    } finally {
+                      setFinishingPhase(false)
+                    }
+                  }}
+                  className="inline-flex items-center py-2 px-4 rounded-lg text-[.82rem] font-semibold bg-amber-500 text-white hover:bg-amber-600 transition-colors disabled:opacity-50"
+                >
+                  {finishingPhase ? 'Finalizando…' : 'Finalizar fase'}
+                </button>
+              </div>
             </div>
           </div>
         )}

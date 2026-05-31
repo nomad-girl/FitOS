@@ -706,6 +706,57 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {/* Body composition alerts */}
+        {checkin && prevCheckin && (() => {
+          const alerts: { text: string; level: 'warn' | 'info' }[] = []
+          const w = checkin.weight_kg
+          const pw = prevCheckin.weight_kg
+          const cal = checkin.avg_calories
+          const calTarget = phase?.calorie_target
+
+          if (w != null && pw != null && cal != null) {
+            const delta = w - pw
+            const isBulk = phaseGoal === 'build'
+            const isCut = phaseGoal === 'cut'
+
+            if (isBulk && delta < -0.2) {
+              alerts.push({ text: `Peso bajó ${Math.abs(delta).toFixed(1)} kg comiendo ~${Math.round(cal)} kcal. Estás en déficit — considerá subir calorías.`, level: 'warn' })
+            } else if (isBulk && delta > 0.3) {
+              alerts.push({ text: `Ganancia de ${delta.toFixed(1)} kg esta semana. Si es sostenido, considerá bajar ~100 kcal.`, level: 'info' })
+            } else if (isCut && delta > 0.1 && cal != null && calTarget != null && cal > calTarget) {
+              alerts.push({ text: `Peso subió ${delta.toFixed(1)} kg. Calorías (${Math.round(cal)}) por encima del target (${calTarget}).`, level: 'warn' })
+            }
+          }
+
+          if (checkin.waist_cm != null) {
+            if (checkin.waist_cm >= 68) {
+              alerts.push({ text: `Cintura en ${checkin.waist_cm} cm — por encima del límite (68 cm). Revisar superávit.`, level: 'warn' })
+            } else if (checkin.waist_cm >= 67) {
+              alerts.push({ text: `Cintura en ${checkin.waist_cm} cm — acercándose al límite (68 cm).`, level: 'info' })
+            }
+          }
+
+          if (checkin.hip_cm != null && checkin.waist_cm != null) {
+            const ratio = checkin.waist_cm / checkin.hip_cm
+            if (ratio >= 0.74) {
+              alerts.push({ text: `Ratio cintura/cadera ${ratio.toFixed(2)} — por encima del máximo (0.74). Frenar.`, level: 'warn' })
+            } else if (ratio >= 0.73) {
+              alerts.push({ text: `Ratio cintura/cadera ${ratio.toFixed(2)} — en zona de alerta (0.73+).`, level: 'info' })
+            }
+          }
+
+          if (alerts.length === 0) return null
+          return (
+            <div className="space-y-2 mb-4 fade-in" style={{ animationDelay: '.12s' }}>
+              {alerts.map((a, i) => (
+                <div key={i} className={`rounded-[var(--radius)] p-[12px_16px] text-[.82rem] font-medium ${a.level === 'warn' ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-blue-50 text-blue-700 border border-blue-200'}`}>
+                  {a.level === 'warn' ? '⚠️' : 'ℹ️'} {a.text}
+                </div>
+              ))}
+            </div>
+          )
+        })()}
+
         {/* D. Top Insight */}
         {topInsight && (
           <div className="fade-in" style={{ animationDelay: '.15s' }}>

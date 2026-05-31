@@ -519,6 +519,11 @@ export default function CheckinPage() {
                   placeholder="53.7"
                   className="w-full py-2.5 px-3.5 border-[1.5px] border-gray-200 rounded-[var(--radius-sm)] text-[.95rem] font-medium focus:border-primary focus:outline-none"
                 />
+                {weight && (parseFloat(weight) < 40 || parseFloat(weight) > 120) && (
+                  <div className="text-[.72rem] text-amber-600 mt-1">
+                    {parseFloat(weight) < 40 ? 'Valor muy bajo — ¿es peso total o masa magra?' : 'Valor inusual — verificar'}
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-[.77rem] text-gray-400 block mb-1">Cintura (cm)</label>

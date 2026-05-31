@@ -656,6 +656,7 @@ export default function DashboardPage() {
               weeklyVolume={weeklyVolume}
               logs={logs}
               periodization={periodization}
+              volumeTargets={phase.volume_targets as Record<string, unknown> | null}
               collapsible
               defaultCollapsed
               style={{ animationDelay: '.05s' }}
@@ -1174,6 +1175,7 @@ export default function DashboardPage() {
             weeklyVolume={weeklyVolume}
             logs={logs}
             periodization={periodization}
+            volumeTargets={phase.volume_targets as Record<string, unknown> | null}
             compact
           />
         )}

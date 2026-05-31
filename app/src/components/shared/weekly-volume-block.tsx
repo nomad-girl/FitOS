@@ -2,15 +2,37 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
-import { resolveMesocycleWeek, formatMesoChip, MUSCLE_VOLUME_PROGRESSION } from '@/lib/mesocycle'
-import type { PhasePeriodization } from '@/lib/mesocycle'
+import { resolveMesocycleWeek, formatMesoChip, targetSetsForWeek, MUSCLE_VOLUME_PROGRESSION } from '@/lib/mesocycle'
+import type { PhasePeriodization, MesocycleWeekPlan } from '@/lib/mesocycle'
 import type { DailyLog } from '@/lib/supabase/types'
+
+const EN_TO_ES: Record<string, string> = {
+  Glutes: 'Glúteos', Hamstrings: 'Isquiotibiales', Quadriceps: 'Cuádriceps',
+  Lats: 'Espalda', 'Upper Back': 'Espalda', 'Lower Back': 'Espalda',
+  Biceps: 'Bíceps', Triceps: 'Tríceps', Shoulders: 'Hombros', Chest: 'Pecho',
+  Abductors: 'Glúteos', Forearms: 'Bíceps', Abdominals: 'Abdominales',
+  Adductors: 'Cuádriceps', Calves: 'Pantorrillas',
+}
+
+function buildTargetsFromPhase(volumeTargets: Record<string, unknown>, plan: MesocycleWeekPlan): { muscle: string; target: number }[] {
+  const phaseTargets = targetSetsForWeek(volumeTargets, plan)
+  const merged: Record<string, number> = {}
+  for (const [enName, val] of Object.entries(phaseTargets)) {
+    const esName = EN_TO_ES[enName] ?? enName
+    merged[esName] = (merged[esName] ?? 0) + val
+  }
+  return Object.entries(merged)
+    .filter(([, v]) => v > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([muscle, target]) => ({ muscle, target }))
+}
 
 interface WeeklyVolumeBlockProps {
   weekNumber: number
   weeklyVolume: Record<string, number>
   logs: DailyLog[]
   periodization?: PhasePeriodization | null
+  volumeTargets?: Record<string, unknown> | null
   /** Compact mode shrinks the muscle label + number column for narrow containers (sidebar). */
   compact?: boolean
   /** If true, render a mobile-style collapsible header. Otherwise always expanded. */
@@ -26,6 +48,7 @@ export function WeeklyVolumeBlock({
   weeklyVolume,
   logs,
   periodization,
+  volumeTargets,
   compact = false,
   collapsible = false,
   defaultCollapsed = false,
@@ -45,8 +68,12 @@ export function WeeklyVolumeBlock({
     : meso.type === 'progression' ? '#F1ECF7'
     : meso.type === 'peak' ? '#FBECEC' : '#FDF4DB'
 
-  const totalTarget = MUSCLE_VOLUME_PROGRESSION.reduce((sum, row) => sum + row[weekKey], 0)
-  const totalDone = MUSCLE_VOLUME_PROGRESSION.reduce((sum, row) => sum + (weeklyVolume[row.muscle] ?? 0), 0)
+  const usePhaseTargets = volumeTargets && typeof volumeTargets === 'object' && Object.keys(volumeTargets).length > 0
+  const phaseRows = usePhaseTargets ? buildTargetsFromPhase(volumeTargets as Record<string, unknown>, meso) : null
+  const muscleRows = phaseRows ?? MUSCLE_VOLUME_PROGRESSION.map(row => ({ muscle: row.muscle, target: row[weekKey] }))
+
+  const totalTarget = muscleRows.reduce((sum, row) => sum + row.target, 0)
+  const totalDone = muscleRows.reduce((sum, row) => sum + (weeklyVolume[row.muscle] ?? 0), 0)
   const totalPct = totalTarget > 0 ? Math.min(100, (totalDone / totalTarget) * 100) : 0
   const totalColor = totalPct >= 100 ? '#10B981' : totalPct >= 50 ? typeColor : '#cbd5e1'
 
@@ -121,13 +148,17 @@ export function WeeklyVolumeBlock({
                 <span className="text-gray-400"> / {rpeTarget}</span>
               </div>
             </div>
+            {avgRpe != null && Math.abs(rpeDelta) > 0.5 && (
+              <div className={`text-[.72rem] font-medium ${rpeDelta > 0 ? 'text-red-500' : 'text-blue-500'}`}>
+                {rpeDelta > 0 ? `↑ ${rpeDelta.toFixed(1)} por encima del target` : `↓ ${Math.abs(rpeDelta).toFixed(1)} por debajo del target`}
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
-            {MUSCLE_VOLUME_PROGRESSION.map(row => {
-              const target = row[weekKey]
+            {muscleRows.map(row => {
               const done = weeklyVolume[row.muscle] ?? 0
-              const pct = target > 0 ? Math.min(100, (done / target) * 100) : 0
+              const pct = row.target > 0 ? Math.min(100, (done / row.target) * 100) : 0
               const color = pct >= 100 ? '#10B981' : pct >= 50 ? typeColor : '#cbd5e1'
               return (
                 <div key={row.muscle} className={`flex items-center gap-3 ${fontSize}`}>
@@ -137,7 +168,7 @@ export function WeeklyVolumeBlock({
                   </div>
                   <div className={`${numW} text-right text-gray-500 tabular-nums text-[.78rem]`}>
                     <span className="font-semibold text-gray-800">{done % 1 === 0 ? done : done.toFixed(1)}</span>
-                    <span className="text-gray-400"> / {target}</span>
+                    <span className="text-gray-400"> / {row.target}</span>
                   </div>
                 </div>
               )

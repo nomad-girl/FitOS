@@ -125,6 +125,10 @@ export default function CloseoutPage({ params }: { params: Promise<{ phaseId: st
       const { error } = await supabase.from('phases').update(update).eq('id', phaseId)
       if (error) { alert('Error guardando: ' + error.message); return }
       invalidateCache('plan:')
+      if (update.status === 'completed') {
+        invalidateCache('dashboard:')
+        invalidateCache('checkin:')
+      }
       if (action === 'next') {
         router.push('/plan?tab=macro&newPhase=1&from=' + phaseId)
       } else if (action === 'complete') {

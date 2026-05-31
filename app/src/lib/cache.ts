@@ -51,11 +51,24 @@ export function setCache<T>(key: string, data: T, ttl?: number, persist?: boolea
 }
 
 export function invalidateCache(prefix?: string): void {
+  // In-memory
   if (!prefix) {
     cache.clear()
-    return
+  } else {
+    for (const key of cache.keys()) {
+      if (key.startsWith(prefix)) cache.delete(key)
+    }
   }
-  for (const key of cache.keys()) {
-    if (key.startsWith(prefix)) cache.delete(key)
+  // Persistent (localStorage) — otherwise getCached resurrects stale data
+  if (typeof window !== 'undefined') {
+    try {
+      const storePrefix = `fitos:cache:${prefix ?? ''}`
+      const toRemove: string[] = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k && k.startsWith(storePrefix)) toRemove.push(k)
+      }
+      toRemove.forEach(k => localStorage.removeItem(k))
+    } catch { /* ignore */ }
   }
 }

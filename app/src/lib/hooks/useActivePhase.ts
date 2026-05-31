@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { getUserId } from '@/lib/supabase/auth-cache'
-import { getCached, setCache } from '@/lib/cache'
+import { getCached, setCache, invalidateCache } from '@/lib/cache'
 import type { Phase, RoutineWithExercises } from '@/lib/supabase/types'
 
 type PhaseWithRoutines = Phase & { routines: RoutineWithExercises[] }
@@ -42,6 +42,7 @@ export function useActivePhase() {
 
       if (!phaseData) {
         setPhase(null)
+        invalidateCache('dashboard:activePhase')
         return
       }
 

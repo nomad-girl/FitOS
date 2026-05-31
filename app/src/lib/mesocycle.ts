@@ -90,6 +90,7 @@ export interface PhasePeriodizationWeek {
 export interface PhasePeriodization {
   blockLength: number
   weeks: PhasePeriodizationWeek[]
+  mesoAnchorDate?: string // ISO date — overrides phase.start_date for meso week calc
 }
 
 // Resolve the mesocycle plan for a given phase week (1-based within the phase).
@@ -212,6 +213,19 @@ export const PERIODIZATION_PRESETS: Record<string, { label: string; periodizatio
       ],
     },
   },
+}
+
+// Compute the effective phase week for meso purposes.
+// If periodization has a mesoAnchorDate, count weeks from that instead of start_date.
+export function effectiveMesoWeek(
+  phaseStartDate: string | null,
+  periodization: PhasePeriodization | null | undefined,
+): number {
+  const anchor = periodization?.mesoAnchorDate ?? phaseStartDate
+  if (!anchor) return 1
+  const start = new Date(anchor)
+  const now = new Date()
+  return Math.max(1, Math.ceil((now.getTime() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)))
 }
 
 // Target sets per muscle group for this week, derived from volume_targets (MEV/MAV/MRV shape).

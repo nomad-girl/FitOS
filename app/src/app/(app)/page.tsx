@@ -17,7 +17,9 @@ import { computeWeeklyScore } from '@/lib/weekly-score'
 import type { Insight } from '@/lib/supabase/types'
 import { syncHevyWorkouts } from '@/lib/hevy/sync'
 import { backfillTrainingData } from '@/lib/hevy/backfill'
-import { resolveMesocycleWeek, formatMesoChip } from '@/lib/mesocycle'
+import { resolveMesocycleWeek, formatMesoChip, effectiveMesoWeek } from '@/lib/mesocycle'
+import type { PhasePeriodization } from '@/lib/mesocycle'
+import { setMesoAnchor } from '@/lib/actions/phases'
 import { getWeeklyVolumeByMuscle } from '@/lib/weekly-volume'
 import { WeeklyVolumeBlock } from '@/components/shared/weekly-volume-block'
 
@@ -350,6 +352,10 @@ export default function DashboardPage() {
     }
   }
 
+  const periodization = phase?.periodization as PhasePeriodization | null
+  const mesoWeekNumber = phase ? effectiveMesoWeek(phase.start_date, periodization) : 1
+  const [mesoPickerOpen, setMesoPickerOpen] = useState(false)
+
   const logCount = logs.length
   const phaseProgress = phase ? Math.round(((weekNumber - 1) / totalWeeks) * 100) : 0
 
@@ -553,15 +559,42 @@ export default function DashboardPage() {
               <div className="font-extrabold text-[1.15rem]">Semana {weekNumber} de {totalWeeks}</div>
               <div className="opacity-85 text-[.87rem]">{phaseName}</div>
               {phase && (() => {
-                const meso = resolveMesocycleWeek(weekNumber, (phase.periodization as import('@/lib/mesocycle').PhasePeriodization | null) ?? null)
+                const meso = resolveMesocycleWeek(mesoWeekNumber, periodization)
+                const blockLen = periodization?.blockLength ?? 4
                 return (
-                  <div className="mt-2 flex items-center gap-2 flex-wrap">
-                    <span className="inline-flex items-center py-[3px] px-2.5 rounded-full text-[.72rem] font-bold bg-white/25 uppercase tracking-wide">
-                      {meso.typeLabel}
-                    </span>
+                  <div className="mt-2 flex items-center gap-2 flex-wrap relative">
+                    <button
+                      type="button"
+                      onClick={() => setMesoPickerOpen(v => !v)}
+                      className="inline-flex items-center py-[3px] px-2.5 rounded-full text-[.72rem] font-bold bg-white/25 uppercase tracking-wide border-none cursor-pointer text-white hover:bg-white/35 transition-colors"
+                    >
+                      {meso.typeLabel} ▾
+                    </button>
                     <span className="text-[.78rem] opacity-90 font-medium">
                       {formatMesoChip(meso)}
                     </span>
+                    {mesoPickerOpen && (
+                      <div className="absolute top-8 left-0 bg-white rounded-lg shadow-lg p-2 z-50 flex gap-1">
+                        {Array.from({ length: blockLen }, (_, i) => {
+                          const preview = resolveMesocycleWeek(i + 1, periodization)
+                          const isActive = meso.mesoWeek === i + 1
+                          return (
+                            <button
+                              key={i}
+                              type="button"
+                              className={`px-3 py-1.5 rounded-md text-[.75rem] font-semibold border-none cursor-pointer transition-colors ${isActive ? 'bg-[#1d9be2] text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                              onClick={async () => {
+                                setMesoPickerOpen(false)
+                                await setMesoAnchor(phase.id, i + 1)
+                                window.location.reload()
+                              }}
+                            >
+                              {preview.typeLabel}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 )
               })()}
@@ -595,9 +628,10 @@ export default function DashboardPage() {
         {phase && (
           <div className="lg:hidden">
             <WeeklyVolumeBlock
-              weekNumber={weekNumber}
+              weekNumber={mesoWeekNumber}
               weeklyVolume={weeklyVolume}
               logs={logs}
+              periodization={periodization}
               collapsible
               defaultCollapsed
               style={{ animationDelay: '.05s' }}
@@ -1112,9 +1146,10 @@ export default function DashboardPage() {
         {/* 0. Esta semana — volume + RPE (desktop only) */}
         {phase && (
           <WeeklyVolumeBlock
-            weekNumber={weekNumber}
+            weekNumber={mesoWeekNumber}
             weeklyVolume={weeklyVolume}
             logs={logs}
+            periodization={periodization}
             compact
           />
         )}

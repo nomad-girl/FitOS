@@ -3,12 +3,14 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { resolveMesocycleWeek, formatMesoChip, MUSCLE_VOLUME_PROGRESSION } from '@/lib/mesocycle'
+import type { PhasePeriodization } from '@/lib/mesocycle'
 import type { DailyLog } from '@/lib/supabase/types'
 
 interface WeeklyVolumeBlockProps {
   weekNumber: number
   weeklyVolume: Record<string, number>
   logs: DailyLog[]
+  periodization?: PhasePeriodization | null
   /** Compact mode shrinks the muscle label + number column for narrow containers (sidebar). */
   compact?: boolean
   /** If true, render a mobile-style collapsible header. Otherwise always expanded. */
@@ -23,6 +25,7 @@ export function WeeklyVolumeBlock({
   weekNumber,
   weeklyVolume,
   logs,
+  periodization,
   compact = false,
   collapsible = false,
   defaultCollapsed = false,
@@ -31,7 +34,7 @@ export function WeeklyVolumeBlock({
 }: WeeklyVolumeBlockProps) {
   const [open, setOpen] = useState(!defaultCollapsed)
 
-  const meso = resolveMesocycleWeek(weekNumber)
+  const meso = resolveMesocycleWeek(weekNumber, periodization)
   const weekKey = meso.type === 'accumulation' ? 'week1'
     : meso.type === 'progression' ? 'week2'
     : meso.type === 'peak' ? 'week3' : 'deload'

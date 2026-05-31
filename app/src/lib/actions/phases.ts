@@ -86,6 +86,34 @@ export async function completePhase(id: string, outcomeNotes?: string) {
   return phase
 }
 
+export async function setMesoAnchor(phaseId: string, mesoWeek: number) {
+  const supabase = await createClient()
+  const { data: phase } = await supabase
+    .from('phases')
+    .select('periodization')
+    .eq('id', phaseId)
+    .single()
+
+  const periodization = (phase?.periodization as Record<string, unknown>) ?? {}
+  const blockLength = (periodization.blockLength as number) || 4
+
+  // Set anchor so that today maps to the desired mesoWeek
+  const now = new Date()
+  const offsetDays = (mesoWeek - 1) * 7
+  const anchor = new Date(now.getTime() - offsetDays * 24 * 60 * 60 * 1000)
+  const anchorStr = anchor.toISOString().slice(0, 10)
+
+  const updated = { ...periodization, mesoAnchorDate: anchorStr, blockLength }
+
+  const { error } = await supabase
+    .from('phases')
+    .update({ periodization: updated, updated_at: new Date().toISOString() })
+    .eq('id', phaseId)
+
+  if (error) throw error
+  return anchorStr
+}
+
 export async function abandonPhase(id: string) {
   const supabase = await createClient()
   const { data: phase, error } = await supabase

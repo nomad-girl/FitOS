@@ -38,7 +38,7 @@ function getWeekStartDate(date: Date, weekStartDay: string): string {
 export default function DashboardPage() {
   const { profile } = useProfile()
   const weekStartDay = profile?.week_start_day ?? 'saturday'
-  const { phase, loading: phaseLoading } = useActivePhase()
+  const { phase, loading: phaseLoading, refetch: refetchPhase } = useActivePhase()
   const [tableWeekOffset, setTableWeekOffset] = useState(0)
   const { data: weeklyData, loading: weeklyLoading, refetch: refetchWeekly } = useWeeklyData(phase?.id, weekStartDay)
   const { data: tableWeekData, refetch: refetchTable } = useWeeklyData(tableWeekOffset !== 0 ? phase?.id : undefined, weekStartDay, tableWeekOffset)
@@ -335,6 +335,7 @@ export default function DashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase?.id, weekStart])
   let weekNumber = 1
+  let rawWeekNumber = 1
   let totalWeeks = 6
   let phaseName = ''
   let phaseObjective = ''
@@ -348,9 +349,11 @@ export default function DashboardPage() {
     if (phase.start_date) {
       const startDate = new Date(phase.start_date)
       const now = new Date()
-      weekNumber = Math.max(1, Math.ceil((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 7)))
+      rawWeekNumber = Math.max(1, Math.ceil((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24 * 7)))
+      weekNumber = Math.min(rawWeekNumber, totalWeeks)
     }
   }
+  const phaseExpired = rawWeekNumber > totalWeeks
 
   const periodization = phase?.periodization as PhasePeriodization | null
   const mesoWeekNumber = phase ? effectiveMesoWeek(phase.start_date, periodization) : 1
@@ -552,6 +555,26 @@ export default function DashboardPage() {
           <p className="text-gray-500 text-[.9rem] mt-1">Tu semana de un vistazo</p>
         </div>
 
+        {/* Phase expired banner */}
+        {phase && phaseExpired && (
+          <div className="bg-amber-50 border border-amber-200 rounded-[var(--radius)] p-[16px_20px] mb-[14px] fade-in">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <div className="font-bold text-[.9rem] text-amber-800">Esta fase terminó</div>
+                <div className="text-[.8rem] text-amber-600 mt-0.5">
+                  &quot;{phaseName}&quot; tenía {totalWeeks} semanas y ya pasaron {rawWeekNumber}. Los targets están desactualizados.
+                </div>
+              </div>
+              <Link
+                href={`/plan/cierre/${phase.id}`}
+                className="inline-flex items-center py-2 px-4 rounded-lg text-[.82rem] font-semibold bg-amber-500 text-white hover:bg-amber-600 transition-colors no-underline"
+              >
+                Finalizar fase
+              </Link>
+            </div>
+          </div>
+        )}
+
         {/* A. Week Status Bar */}
         <div className="bg-gradient-to-br from-[#1d9be2] to-[#1aafcf] text-white rounded-[var(--radius)] p-[26px_30px] mb-[18px] fade-in">
           <div className="flex justify-between items-center flex-wrap gap-2.5">
@@ -586,7 +609,8 @@ export default function DashboardPage() {
                               onClick={async () => {
                                 setMesoPickerOpen(false)
                                 await setMesoAnchor(phase.id, i + 1)
-                                window.location.reload()
+                                invalidateCache('dashboard:activePhase')
+                                refetchPhase()
                               }}
                             >
                               {preview.typeLabel}

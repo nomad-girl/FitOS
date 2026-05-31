@@ -352,13 +352,15 @@ export default function JournalPage() {
 
           const stats: { label: string; value: string }[] = []
 
-          // Calculate current week from start_date
-          const currentWeek = phase.start_date
+          // Calculate current week from start_date, capped at phase duration
+          const rawCurrentWeek = phase.start_date
             ? Math.max(1, Math.ceil((Date.now() - new Date(phase.start_date + 'T00:00:00').getTime()) / (7 * 24 * 60 * 60 * 1000)))
             : (weekCount ?? 0) + 1
+          const currentWeek = Math.min(rawCurrentWeek, phase.duration_weeks)
 
           if (phase.status === 'active') {
-            stats.push({ label: 'Progreso', value: `Semana ${currentWeek} de ${phase.duration_weeks}` })
+            const expired = rawCurrentWeek > phase.duration_weeks
+            stats.push({ label: 'Progreso', value: `Semana ${currentWeek} de ${phase.duration_weeks}${expired ? ' (finalizar)' : ''}` })
           } else if (weekCount != null) {
             stats.push({ label: 'Duracion', value: `${weekCount} semanas` })
           }

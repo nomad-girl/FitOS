@@ -114,12 +114,13 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
   const phaseGoalLabel = phase ? (GOAL_LABELS[phase.goal] ?? phase.goal) : null
   const phaseName = phase?.name ?? null
 
-  // Weeks into phase
+  // Weeks into phase, capped at phase duration
   let phaseWeeks: number | null = null
   if (phase?.start_date) {
     const start = new Date(phase.start_date)
     const now = new Date()
-    phaseWeeks = Math.max(1, Math.ceil((now.getTime() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)))
+    const raw = Math.max(1, Math.ceil((now.getTime() - start.getTime()) / (7 * 24 * 60 * 60 * 1000)))
+    phaseWeeks = phase.duration_weeks ? Math.min(raw, phase.duration_weeks) : raw
   }
 
   async function handleSave() {

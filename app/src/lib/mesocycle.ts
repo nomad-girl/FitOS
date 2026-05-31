@@ -363,7 +363,7 @@ export const CONSECUTIVE_DAYS: ConsecutiveDayRule[] = [
 ]
 
 export const GOLDEN_RULES = [
-  'Volumen y RPE nunca suben juntos. Cuando uno sube, el otro baja.',
+  'Volumen y RPE suben gradualmente juntos dentro del mesociclo. Semana 1: bajo volumen + bajo RPE. Semana 3: alto volumen + alto RPE. Descarga: ambos bajan.',
   'RPE 9-10 solo en semana 3 (peak). Es tu semana de PRs.',
   'La descarga se siente como perder el tiempo. Si no se siente así, estás yendo muy pesado.',
   'La sesión C siempre va un escalón por debajo de A y B en RPE y carga.',

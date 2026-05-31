@@ -840,7 +840,7 @@ export default function PlanPage() {
                     <div className="text-[.84rem] text-gray-400">No hay rutinas en esta fase todavia.</div>
                   )}
 
-                  {routines.map((routine, idx) => (
+                  {routines.filter(r => (r.routine_exercises?.length ?? 0) > 0).map((routine, idx) => (
                     <div key={routine.id} className={`bg-card rounded-[var(--radius)] shadow-[var(--shadow)] mb-3 overflow-hidden border-l-4 ${borderColors[idx % borderColors.length]} p-[16px_20px]`}>
                       <div className="font-semibold text-[.95rem] text-gray-800">{routine.name}</div>
                       <div className="text-[.77rem] text-gray-400">
@@ -922,7 +922,7 @@ export default function PlanPage() {
                   </div>
                 )}
 
-                {routines.map((routine, idx) => {
+                {routines.filter(r => (r.routine_exercises?.length ?? 0) > 0).map((routine, idx) => {
                   const exCount = routine.routine_exercises?.length ?? 0
                   const setCount = routine.routine_exercises?.reduce(
                     (acc, re) => acc + (re.routine_sets?.length ?? 0), 0
